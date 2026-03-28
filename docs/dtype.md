@@ -1,6 +1,6 @@
-# DType -- Scalar Element Types
+# DType — Scalar Element Types
 
-The `DType` enum in `src/dtype.rs` represents the scalar element type for tensors and buffers. It is the first component of the planned tensor type system.
+The `DType` enum in `src/dtype.rs` represents the scalar element type for tensors and buffers. It is one component of the tensor type system; the shape, layout, and device are described by [`TensorType`](tensor-type.md) in `src/tensor_type.rs`.
 
 ## Variants
 
@@ -65,9 +65,9 @@ println!("{:?}", dt); // prints "F32"
 | Method | Returns `true` for |
 |---|---|
 | `is_float()` | `F16`, `BF16`, `F32`, `F64` |
-| `is_int()` | `U8`-`U64`, `I8`-`I64` (not `Bool`) |
-| `is_signed()` | `I8`-`I64`, `F16`, `BF16`, `F32`, `F64` |
-| `is_unsigned()` | `Bool`, `U8`-`U64` |
+| `is_int()` | `U8`–`U64`, `I8`–`I64` (not `Bool`) |
+| `is_signed()` | `I8`–`I64`, `F16`, `BF16`, `F32`, `F64` |
+| `is_unsigned()` | `Bool`, `U8`–`U64` |
 | `is_custom()` | `Custom(_)` |
 
 ### Category Properties
@@ -107,4 +107,20 @@ Two `Custom` values are equal only if their string labels are identical:
 assert_eq!(DType::Custom("q4"), DType::Custom("q4"));
 assert_ne!(DType::Custom("q4"), DType::Custom("q8"));
 assert_ne!(DType::Custom("f32"), DType::F32); // string label vs enum variant
+```
+
+When `DType::Custom` is used in a `TensorType`, `TensorType::size_bytes()` returns `None` because the element size is unknown to the core layer.
+
+## Relationship to TensorType
+
+`DType` is the `dtype` field of [`TensorType`](tensor-type.md). It identifies the scalar element type; the shape, layout, and device are carried separately:
+
+```rust
+use graphynx::tensor_type::TensorType;
+use graphynx::dtype::DType;
+
+// DType flows as the first argument to every TensorType constructor.
+let v = TensorType::vector(DType::F32, 1024)?;
+assert_eq!(v.dtype(), DType::F32);
+assert_eq!(v.size_bytes(), Some(4096)); // 1024 × 4 bytes
 ```

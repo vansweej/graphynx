@@ -15,9 +15,9 @@ nix develop
 ```
 
 The shell hook automatically sets:
-- `CUDA_PATH` -- path to CUDA toolkit (headers, nvcc, stub libraries)
-- `NVRTC_PATH` -- path to NVRTC runtime compilation library
-- `RUSTFLAGS` -- rpaths for linking against host NVIDIA driver libraries
+- `CUDA_PATH` — path to CUDA toolkit (headers, nvcc, stub libraries)
+- `NVRTC_PATH` — path to NVRTC runtime compilation library
+- `RUSTFLAGS` — rpaths for linking against host NVIDIA driver libraries
 
 ## Build
 
@@ -76,6 +76,7 @@ src/
   backend.rs          # Core traits: Backend, DeviceBuffer, KernelDescriptor
   cuda_backend.rs     # CUDA implementation of the Backend trait
   dtype.rs            # DType scalar element type enum
+  tensor_type.rs      # Tensor type system: Dim, Layout, TensorType, TensorTypeBuilder
   main.rs             # Binary entry point (CUDA demo)
 build.rs              # Build script (CUDA linker paths)
 kernel.cu             # CUDA kernel source
@@ -91,7 +92,7 @@ Add to your `Cargo.toml`:
 graphynx = { path = "../path/to/graphynx" }
 ```
 
-Basic usage:
+### Running a CUDA kernel
 
 ```rust
 use graphynx::cuda_backend::{CudaBackend, CudaKernelDesc};
@@ -109,14 +110,45 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### Describing tensor types for graph edges
+
+```rust
+use graphynx::tensor_type::{Dim, Layout, TensorType};
+use graphynx::backend::DeviceId;
+use graphynx::dtype::DType;
+
+// Common shapes use the short constructors:
+let scalar   = TensorType::scalar(DType::F32);
+let vector   = TensorType::vector(DType::I32, 1024)?;
+let matrix   = TensorType::matrix(DType::F64, 512, 512)?;
+
+// Complex shapes use the builder:
+let image = TensorType::builder(DType::F32)
+    .shape(vec![
+        Dim::Symbolic("batch".into()),
+        Dim::Fixed(3),
+        Dim::Fixed(224),
+        Dim::Fixed(224),
+    ])
+    .layout(Layout::NCHW)
+    .dim_names(vec![
+        "batch".into(), "channels".into(), "height".into(), "width".into(),
+    ])
+    .device(DeviceId::new("cuda:0"))
+    .build()?;
+
+println!("{}", image); // f32[batch, 3, 224, 224] NCHW @ cuda:0
+```
+
 ## Rust Toolchain
 
 The Rust toolchain is pinned in `rust-toolchain.toml` to `stable 1.94.1`. Do not change this without following the upgrade procedure documented in `AGENTS.md`.
 
 ## Further Reading
 
-- [Architecture Overview](architecture.md) -- layered design, data flow, and design principles
-- [Backend Trait System](backend-trait.md) -- how the `Backend`, `DeviceBuffer`, and `KernelDescriptor` traits work
-- [CUDA Backend](cuda-backend.md) -- CUDA-specific implementation details
-- [DType](dtype.md) -- scalar element type system
-- [ARCHITECTURE.md](../ARCHITECTURE.md) -- full long-term design plan
+- [Architecture Overview](architecture.md) — layered design, data flow, and design principles
+- [Backend Trait System](backend-trait.md) — how the `Backend`, `DeviceBuffer`, and `KernelDescriptor` traits work
+- [CUDA Backend](cuda-backend.md) — CUDA-specific implementation details
+- [DType](dtype.md) — scalar element type system
+- [Tensor Type System](tensor-type.md) — `Dim`, `Layout`, `TensorType`, construction, compatibility, and display
+- [ARCHITECTURE.md](../ARCHITECTURE.md) — full long-term design plan
