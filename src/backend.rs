@@ -236,3 +236,426 @@ pub trait Backend: Send + Sync {
         Err(BackendError::UnsupportedNodeKind)
     }
 }
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    // ── BackendError ─────────────────────────────────────────────────────
+
+    #[test]
+    fn backend_error_device_display() {
+        let err = BackendError::Device("GPU overheated".to_string());
+        assert_eq!(format!("{err}"), "Device error: GPU overheated");
+    }
+
+    #[test]
+    fn backend_error_invalid_kernel_display() {
+        let err = BackendError::InvalidKernel("bad PTX".to_string());
+        assert_eq!(format!("{err}"), "Invalid kernel descriptor: bad PTX");
+    }
+
+    #[test]
+    fn backend_error_buffer_display() {
+        let err = BackendError::Buffer("out of memory".to_string());
+        assert_eq!(format!("{err}"), "Buffer error: out of memory");
+    }
+
+    #[test]
+    fn backend_error_not_applicable_display() {
+        let err = BackendError::NotApplicable;
+        assert_eq!(
+            format!("{err}"),
+            "Operation not applicable for this backend"
+        );
+    }
+
+    #[test]
+    fn backend_error_unsupported_node_kind_display() {
+        let err = BackendError::UnsupportedNodeKind;
+        assert_eq!(format!("{err}"), "Unsupported node kind");
+    }
+
+    #[test]
+    fn backend_error_unsupported_op_display() {
+        let err = BackendError::UnsupportedOp;
+        assert_eq!(format!("{err}"), "Unsupported ML op");
+    }
+
+    #[test]
+    fn backend_error_debug_format() {
+        let err = BackendError::Device("test".to_string());
+        let debug = format!("{err:?}");
+        assert!(debug.contains("Device"));
+        assert!(debug.contains("test"));
+    }
+
+    #[test]
+    fn backend_error_implements_std_error() {
+        let err = BackendError::Device("test".to_string());
+        // Verify the error can be used as &dyn std::error::Error.
+        let _dyn_err: &dyn std::error::Error = &err;
+    }
+
+    // ── DeviceId ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn device_id_new_from_str() {
+        let id = DeviceId::new("cuda:0");
+        assert_eq!(id.0, "cuda:0");
+    }
+
+    #[test]
+    fn device_id_new_from_string() {
+        let id = DeviceId::new(String::from("opencl:1"));
+        assert_eq!(id.0, "opencl:1");
+    }
+
+    #[test]
+    fn device_id_display() {
+        let id = DeviceId::new("cuda:0");
+        assert_eq!(format!("{id}"), "cuda:0");
+    }
+
+    #[test]
+    fn device_id_debug() {
+        let id = DeviceId::new("cpu");
+        let debug = format!("{id:?}");
+        assert!(debug.contains("cpu"));
+    }
+
+    #[test]
+    fn device_id_clone() {
+        let id = DeviceId::new("cuda:0");
+        let cloned = id.clone();
+        assert_eq!(id, cloned);
+    }
+
+    #[test]
+    fn device_id_equality() {
+        let a = DeviceId::new("cuda:0");
+        let b = DeviceId::new("cuda:0");
+        let c = DeviceId::new("cuda:1");
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn device_id_hash_as_map_key() {
+        let mut map: HashMap<DeviceId, &str> = HashMap::new();
+        map.insert(DeviceId::new("cuda:0"), "gpu0");
+        map.insert(DeviceId::new("cpu"), "host");
+
+        assert_eq!(map.get(&DeviceId::new("cuda:0")), Some(&"gpu0"));
+        assert_eq!(map.get(&DeviceId::new("cpu")), Some(&"host"));
+        assert_eq!(map.get(&DeviceId::new("cuda:1")), None);
+    }
+
+    #[test]
+    fn device_id_empty_string() {
+        let id = DeviceId::new("");
+        assert_eq!(format!("{id}"), "");
+    }
+
+    // ── NodeKindTag ──────────────────────────────────────────────────────
+
+    #[test]
+    fn node_kind_tag_equality() {
+        assert_eq!(NodeKindTag::Compute, NodeKindTag::Compute);
+        assert_eq!(NodeKindTag::MlOp, NodeKindTag::MlOp);
+        assert_eq!(NodeKindTag::MlModel, NodeKindTag::MlModel);
+        assert_ne!(NodeKindTag::Compute, NodeKindTag::MlOp);
+        assert_ne!(NodeKindTag::MlOp, NodeKindTag::MlModel);
+    }
+
+    #[test]
+    fn node_kind_tag_clone() {
+        let tag = NodeKindTag::Compute;
+        let cloned = tag.clone();
+        assert_eq!(tag, cloned);
+    }
+
+    #[test]
+    fn node_kind_tag_debug() {
+        assert_eq!(format!("{:?}", NodeKindTag::Compute), "Compute");
+        assert_eq!(format!("{:?}", NodeKindTag::MlOp), "MlOp");
+        assert_eq!(format!("{:?}", NodeKindTag::MlModel), "MlModel");
+    }
+
+    // ── BackendCaps & MemoryModel ────────────────────────────────────────
+
+    #[test]
+    fn backend_caps_explicit_memory() {
+        let caps = BackendCaps {
+            memory: MemoryModel::Explicit,
+            supported_kinds: vec![NodeKindTag::Compute],
+        };
+        assert!(matches!(caps.memory, MemoryModel::Explicit));
+        assert_eq!(caps.supported_kinds.len(), 1);
+        assert_eq!(caps.supported_kinds[0], NodeKindTag::Compute);
+    }
+
+    #[test]
+    fn backend_caps_managed_memory() {
+        let caps = BackendCaps {
+            memory: MemoryModel::Managed,
+            supported_kinds: vec![NodeKindTag::MlOp, NodeKindTag::MlModel],
+        };
+        assert!(matches!(caps.memory, MemoryModel::Managed));
+        assert_eq!(caps.supported_kinds.len(), 2);
+    }
+
+    #[test]
+    fn backend_caps_empty_kinds() {
+        let caps = BackendCaps {
+            memory: MemoryModel::Explicit,
+            supported_kinds: vec![],
+        };
+        assert!(caps.supported_kinds.is_empty());
+    }
+
+    // ── Mock backend for testing default trait methods ────────────────────
+
+    /// A minimal mock backend that only implements the required trait methods.
+    /// Uses default implementations for `dispatch_compute`, `dispatch_ml_op`,
+    /// and `dispatch_ml_model` to verify they return `UnsupportedNodeKind`.
+    struct MockManagedBackend {
+        device_id: DeviceId,
+    }
+
+    impl MockManagedBackend {
+        fn new() -> Self {
+            Self {
+                device_id: DeviceId::new("mock:0"),
+            }
+        }
+    }
+
+    /// A simple in-memory buffer for testing the `DeviceBuffer` trait.
+    struct MockBuffer {
+        data: Vec<u8>,
+        device_id: DeviceId,
+    }
+
+    impl MockBuffer {
+        fn new(size: usize, device_id: DeviceId) -> Self {
+            Self {
+                data: vec![0u8; size],
+                device_id,
+            }
+        }
+    }
+
+    impl DeviceBuffer for MockBuffer {
+        fn size_bytes(&self) -> usize {
+            self.data.len()
+        }
+
+        fn device_id(&self) -> &DeviceId {
+            &self.device_id
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+
+        fn as_any_mut(&mut self) -> &mut dyn Any {
+            self
+        }
+    }
+
+    impl Backend for MockManagedBackend {
+        fn name(&self) -> &str {
+            "mock"
+        }
+
+        fn device_id(&self) -> &DeviceId {
+            &self.device_id
+        }
+
+        fn capabilities(&self) -> BackendCaps {
+            BackendCaps {
+                memory: MemoryModel::Managed,
+                supported_kinds: vec![],
+            }
+        }
+
+        fn alloc(&self, _size_bytes: usize) -> Result<Box<dyn DeviceBuffer>, BackendError> {
+            Err(BackendError::NotApplicable)
+        }
+
+        fn upload(&self, _host: &[u8], _dst: &dyn DeviceBuffer) -> Result<(), BackendError> {
+            Err(BackendError::NotApplicable)
+        }
+
+        fn download(&self, _src: &dyn DeviceBuffer, _host: &mut [u8]) -> Result<(), BackendError> {
+            Err(BackendError::NotApplicable)
+        }
+
+        // dispatch_compute, dispatch_ml_op, dispatch_ml_model use defaults.
+    }
+
+    #[test]
+    fn default_dispatch_compute_returns_unsupported() {
+        let backend = MockManagedBackend::new();
+        let desc = MockKernelDesc;
+        let input_buf = MockBuffer::new(16, DeviceId::new("mock"));
+        let mut output_buf = MockBuffer::new(16, DeviceId::new("mock"));
+        let result = backend.dispatch_compute(
+            &desc,
+            &[&input_buf as &dyn DeviceBuffer],
+            &mut [&mut output_buf],
+        );
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            BackendError::UnsupportedNodeKind
+        ));
+    }
+
+    #[test]
+    fn default_dispatch_ml_op_returns_unsupported() {
+        let backend = MockManagedBackend::new();
+        let input: &[u8] = &[1, 2, 3];
+        let mut output = vec![vec![0u8; 3]];
+        let result = backend.dispatch_ml_op("relu", &[input], &mut output);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            BackendError::UnsupportedNodeKind
+        ));
+    }
+
+    #[test]
+    fn default_dispatch_ml_model_returns_unsupported() {
+        let backend = MockManagedBackend::new();
+        let input: &[u8] = &[1, 2, 3];
+        let mut output = vec![vec![0u8; 3]];
+        let result = backend.dispatch_ml_model("resnet50", &[input], &mut output);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            BackendError::UnsupportedNodeKind
+        ));
+    }
+
+    // ── DeviceBuffer trait (via MockBuffer) ──────────────────────────────
+
+    #[test]
+    fn mock_buffer_size_bytes() {
+        let buf = MockBuffer::new(64, DeviceId::new("test"));
+        assert_eq!(buf.size_bytes(), 64);
+    }
+
+    #[test]
+    fn mock_buffer_device_id() {
+        let buf = MockBuffer::new(32, DeviceId::new("cuda:0"));
+        assert_eq!(buf.device_id(), &DeviceId::new("cuda:0"));
+    }
+
+    #[test]
+    fn mock_buffer_as_any_downcast() {
+        let buf = MockBuffer::new(16, DeviceId::new("test"));
+        let any_ref = buf.as_any();
+        assert!(any_ref.downcast_ref::<MockBuffer>().is_some());
+    }
+
+    #[test]
+    fn mock_buffer_as_any_mut_downcast() {
+        let mut buf = MockBuffer::new(16, DeviceId::new("test"));
+        let any_mut = buf.as_any_mut();
+        assert!(any_mut.downcast_mut::<MockBuffer>().is_some());
+    }
+
+    #[test]
+    fn mock_buffer_zero_size() {
+        let buf = MockBuffer::new(0, DeviceId::new("test"));
+        assert_eq!(buf.size_bytes(), 0);
+    }
+
+    // ── KernelDescriptor trait ───────────────────────────────────────────
+
+    /// A minimal kernel descriptor for testing.
+    struct MockKernelDesc;
+
+    impl KernelDescriptor for MockKernelDesc {
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    #[test]
+    fn kernel_descriptor_as_any_downcast() {
+        let desc = MockKernelDesc;
+        let any_ref: &dyn Any = desc.as_any();
+        assert!(any_ref.downcast_ref::<MockKernelDesc>().is_some());
+    }
+
+    #[test]
+    fn kernel_descriptor_trait_object() {
+        let desc = MockKernelDesc;
+        let trait_obj: &dyn KernelDescriptor = &desc;
+        assert!(trait_obj
+            .as_any()
+            .downcast_ref::<MockKernelDesc>()
+            .is_some());
+    }
+
+    // ── Backend trait (via MockManagedBackend) ───────────────────────────
+
+    #[test]
+    fn mock_backend_name() {
+        let backend = MockManagedBackend::new();
+        assert_eq!(backend.name(), "mock");
+    }
+
+    #[test]
+    fn mock_backend_alloc_returns_not_applicable() {
+        let backend = MockManagedBackend::new();
+        let result = backend.alloc(64);
+        assert!(result.is_err());
+        match result {
+            Err(BackendError::NotApplicable) => {} // expected
+            Err(other) => panic!("expected NotApplicable, got {other}"),
+            Ok(_) => panic!("expected error, got Ok"),
+        }
+    }
+
+    #[test]
+    fn mock_backend_upload_returns_not_applicable() {
+        let backend = MockManagedBackend::new();
+        let buf = MockBuffer::new(16, DeviceId::new("mock"));
+        let result = backend.upload(&[1, 2, 3], &buf);
+        assert!(matches!(result.unwrap_err(), BackendError::NotApplicable));
+    }
+
+    #[test]
+    fn mock_backend_download_returns_not_applicable() {
+        let backend = MockManagedBackend::new();
+        let buf = MockBuffer::new(16, DeviceId::new("mock"));
+        let mut host = vec![0u8; 16];
+        let result = backend.download(&buf, &mut host);
+        assert!(matches!(result.unwrap_err(), BackendError::NotApplicable));
+    }
+
+    #[test]
+    fn mock_backend_capabilities() {
+        let backend = MockManagedBackend::new();
+        let caps = backend.capabilities();
+        assert!(matches!(caps.memory, MemoryModel::Managed));
+        assert!(caps.supported_kinds.is_empty());
+    }
+
+    // ── Backend as trait object ──────────────────────────────────────────
+
+    #[test]
+    fn backend_can_be_used_as_trait_object() {
+        let backend = MockManagedBackend::new();
+        let trait_obj: &dyn Backend = &backend;
+        assert_eq!(trait_obj.name(), "mock");
+    }
+}

@@ -242,3 +242,124 @@ impl Backend for CudaBackend {
         Ok(())
     }
 }
+
+// ── Tests ────────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use std::any::Any;
+
+    use super::*;
+
+    // ── CudaKernelDesc construction ──────────────────────────────────────
+
+    #[test]
+    fn kernel_desc_new_sets_module_name_to_hello() {
+        let desc = CudaKernelDesc::new("my_kernel", [1, 1, 1], [32, 1, 1]);
+        assert_eq!(desc.module_name, "hello");
+    }
+
+    #[test]
+    fn kernel_desc_new_sets_func_name() {
+        let desc = CudaKernelDesc::new("add_kernel", [2, 3, 4], [8, 8, 1]);
+        assert_eq!(desc.func_name, "add_kernel");
+    }
+
+    #[test]
+    fn kernel_desc_new_sets_grid_dim() {
+        let desc = CudaKernelDesc::new("k", [4, 2, 1], [16, 1, 1]);
+        assert_eq!(desc.grid_dim, (4, 2, 1));
+    }
+
+    #[test]
+    fn kernel_desc_new_sets_block_dim() {
+        let desc = CudaKernelDesc::new("k", [1, 1, 1], [128, 4, 2]);
+        assert_eq!(desc.block_dim, (128, 4, 2));
+    }
+
+    #[test]
+    fn kernel_desc_fields_are_public() {
+        let mut desc = CudaKernelDesc::new("k", [1, 1, 1], [1, 1, 1]);
+        // Verify fields are public and mutable.
+        desc.module_name = "custom_module".to_string();
+        desc.func_name = "custom_func".to_string();
+        desc.grid_dim = (10, 20, 30);
+        desc.block_dim = (256, 1, 1);
+        assert_eq!(desc.module_name, "custom_module");
+        assert_eq!(desc.func_name, "custom_func");
+        assert_eq!(desc.grid_dim, (10, 20, 30));
+        assert_eq!(desc.block_dim, (256, 1, 1));
+    }
+
+    // ── CudaKernelDesc derives ───────────────────────────────────────────
+
+    #[test]
+    fn kernel_desc_clone() {
+        let desc = CudaKernelDesc::new("hello_kernel", [1, 1, 1], [10, 1, 1]);
+        let cloned = desc.clone();
+        assert_eq!(cloned.module_name, desc.module_name);
+        assert_eq!(cloned.func_name, desc.func_name);
+        assert_eq!(cloned.grid_dim, desc.grid_dim);
+        assert_eq!(cloned.block_dim, desc.block_dim);
+    }
+
+    #[test]
+    fn kernel_desc_debug() {
+        let desc = CudaKernelDesc::new("hello_kernel", [1, 1, 1], [10, 1, 1]);
+        let debug = format!("{desc:?}");
+        assert!(debug.contains("CudaKernelDesc"));
+        assert!(debug.contains("hello_kernel"));
+        assert!(debug.contains("hello")); // module_name
+    }
+
+    // ── KernelDescriptor trait impl ──────────────────────────────────────
+
+    #[test]
+    fn kernel_desc_as_any_downcast() {
+        let desc = CudaKernelDesc::new("k", [1, 1, 1], [1, 1, 1]);
+        let any_ref: &dyn Any = desc.as_any();
+        let downcasted = any_ref.downcast_ref::<CudaKernelDesc>();
+        assert!(downcasted.is_some());
+        assert_eq!(downcasted.unwrap().func_name, "k");
+    }
+
+    #[test]
+    fn kernel_desc_as_trait_object() {
+        let desc = CudaKernelDesc::new("k", [1, 1, 1], [1, 1, 1]);
+        let trait_obj: &dyn KernelDescriptor = &desc;
+        let any_ref = trait_obj.as_any();
+        assert!(any_ref.downcast_ref::<CudaKernelDesc>().is_some());
+    }
+
+    #[test]
+    fn kernel_desc_wrong_downcast_returns_none() {
+        let desc = CudaKernelDesc::new("k", [1, 1, 1], [1, 1, 1]);
+        let any_ref: &dyn Any = desc.as_any();
+        // Downcasting to the wrong type should return None.
+        assert!(any_ref.downcast_ref::<String>().is_none());
+    }
+
+    // ── CudaKernelDesc edge cases ────────────────────────────────────────
+
+    #[test]
+    fn kernel_desc_empty_func_name() {
+        let desc = CudaKernelDesc::new("", [1, 1, 1], [1, 1, 1]);
+        assert_eq!(desc.func_name, "");
+    }
+
+    #[test]
+    fn kernel_desc_large_dimensions() {
+        let desc = CudaKernelDesc::new("k", [65535, 65535, 65535], [1024, 1, 1]);
+        assert_eq!(desc.grid_dim, (65535, 65535, 65535));
+        assert_eq!(desc.block_dim, (1024, 1, 1));
+    }
+
+    #[test]
+    fn kernel_desc_zero_dimensions() {
+        // Zero dimensions are technically invalid for CUDA but should be
+        // representable at the descriptor level.
+        let desc = CudaKernelDesc::new("k", [0, 0, 0], [0, 0, 0]);
+        assert_eq!(desc.grid_dim, (0, 0, 0));
+        assert_eq!(desc.block_dim, (0, 0, 0));
+    }
+}
