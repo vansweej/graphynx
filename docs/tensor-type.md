@@ -9,7 +9,7 @@ A `TensorType` is an immutable, always-valid descriptor combining:
 | Field | Type | Description |
 |---|---|---|
 | `dtype` | `DType` | Scalar element type (e.g. `F32`, `I32`) |
-| `shape` | `Vec<Dim>` | Per-dimension size descriptors |
+| `shape` | [`Shape`](shape.md) | Validated tensor shape (see [shape.md](shape.md)) |
 | `layout` | `Layout` | Memory layout (`RowMajor`, `NCHW`, …) |
 | `dim_names` | `Option<Vec<String>>` | Optional per-dimension human-readable names |
 | `device` | `Option<DeviceId>` | Optional device placement |
@@ -134,13 +134,13 @@ All accessors are read-only. There are no setters.
 | Method | Return type | Description |
 |---|---|---|
 | `dtype()` | `DType` | Scalar element type |
-| `shape()` | `&[Dim]` | Dimension list |
+| `shape()` | `&Shape` | The validated tensor shape (see [shape.md](shape.md)) |
 | `layout()` | `Layout` | Memory layout |
 | `dim_names()` | `Option<&[String]>` | Per-dimension names, if set |
 | `device()` | `Option<&DeviceId>` | Device placement, if set |
-| `rank()` | `usize` | Number of dimensions |
+| `rank()` | `usize` | Number of dimensions (delegates to `shape.rank()`) |
 | `is_scalar()` | `bool` | `true` when rank == 0 |
-| `num_elements()` | `Option<usize>` | Product of all dims; `None` if any dim is dynamic/symbolic. Scalar → `Some(1)`. |
+| `num_elements()` | `Option<usize>` | Product of all dims; `None` if any dim is dynamic/symbolic. Scalar → `Some(1)`. Delegates to `shape.num_elements()`. |
 | `size_bytes()` | `Option<usize>` | `num_elements() * dtype.size_bytes()`; `None` if either is unknown |
 
 ## Transforms
@@ -245,5 +245,14 @@ f32[batch, ?, 3] Any                   // symbolic + dynamic
 - `thiserror` (already in `Cargo.toml`)
 - `crate::dtype::DType`
 - `crate::backend::DeviceId`
+- `crate::shape::Shape`
 
 It has zero GPU SDK dependencies and compiles in any environment.
+
+## Further Reading
+
+- [Shape Module](shape.md) — `Shape`, broadcasting, reshape validation, and stride computation
+- [DType](dtype.md) — scalar element type enum
+- [Backend Trait System](backend-trait.md) — `DeviceId` used for device placement
+- [ML Op Catalog](ml-op.md) — `MlOp` operations that consume `TensorType` tensors
+- [Architecture Overview](architecture.md) — where `TensorType` sits in the layered design

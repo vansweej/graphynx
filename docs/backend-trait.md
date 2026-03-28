@@ -127,11 +127,52 @@ graph TD
 
 All error variants use `thiserror` for `Display` and `Error` derivation. Variants carrying a `String` message convert foreign errors at FFI boundaries via `.map_err(|e| BackendError::Variant(e.to_string()))`.
 
+### DeviceIdError
+
+```mermaid
+graph TD
+    DeviceIdError --> Empty["Empty<br/>Device ID string was empty"]
+```
+
+Errors produced when constructing a `DeviceId` through the safe constructor `try_new()`. Derives: `Debug`, `Error`, `Clone`, `Eq`, `PartialEq`.
+
 ### DeviceId
 
-A newtype around `String` that identifies a backend instance at runtime. Convention: `"<backend>:<index>"` for hardware (e.g. `"cuda:0"`), `"<runtime>:<device>"` for ML runtimes (e.g. `"onnx:cpu"`).
+A validated identifier for a backend instance at runtime. The inner `String` field is **private** — use the constructors and `as_str()` accessor below.
+
+Convention: `"<backend>:<index>"` for hardware (e.g. `"cuda:0"`), `"<runtime>:<device>"` for ML runtimes (e.g. `"onnx:cpu"`).
 
 Derives: `Clone`, `Debug`, `Eq`, `PartialEq`, `Hash`. Implements `Display`.
+
+#### Constructors
+
+| Constructor | Parameters | Returns | Description |
+|---|---|---|---|
+| `DeviceId::try_new(id)` | `impl Into<String>` | `Result<DeviceId, DeviceIdError>` | Safe constructor — rejects empty strings |
+| `DeviceId::new(id)` | `impl Into<String>` | `DeviceId` | Unchecked constructor for tests and known-good literals |
+
+#### Accessor
+
+| Method | Returns | Description |
+|---|---|---|
+| `as_str()` | `&str` | The device identifier as a string slice |
+
+#### Examples
+
+```rust
+use graphynx::backend::DeviceId;
+
+// Safe constructor
+let id = DeviceId::try_new("cuda:0").unwrap();
+assert_eq!(id.as_str(), "cuda:0");
+
+// Empty string is rejected
+assert!(DeviceId::try_new("").is_err());
+
+// Unchecked constructor (for tests / known-good literals)
+let id = DeviceId::new("cpu");
+println!("{}", id); // "cpu"
+```
 
 ### NodeKindTag
 
