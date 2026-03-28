@@ -1,5 +1,18 @@
 use std::fmt;
 
+use thiserror::Error;
+
+// ── DTypeError ───────────────────────────────────────────────────────────────
+
+/// Errors produced when constructing a [`DType`] through a safe constructor.
+#[derive(Debug, Error, Clone, Eq, PartialEq)]
+pub enum DTypeError {
+    /// A `Custom` label was empty. Labels must be non-empty so they can
+    /// meaningfully identify a backend-specific type.
+    #[error("Custom dtype label must not be empty")]
+    EmptyCustomLabel,
+}
+
 // ── DType ────────────────────────────────────────────────────────────────────
 
 /// Scalar element type for tensors and buffers.
@@ -54,6 +67,30 @@ pub enum DType {
 }
 
 impl DType {
+    // ── Constructors ─────────────────────────────────────────────────────
+
+    /// Construct a [`DType::Custom`] variant, rejecting empty labels.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DTypeError::EmptyCustomLabel`] if `label` is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use graphynx::dtype::DType;
+    ///
+    /// assert!(DType::custom("q4").is_ok());
+    /// assert!(DType::custom("").is_err());
+    /// ```
+    pub fn custom(label: &'static str) -> Result<Self, DTypeError> {
+        if label.is_empty() {
+            Err(DTypeError::EmptyCustomLabel)
+        } else {
+            Ok(DType::Custom(label))
+        }
+    }
+
     // ── Size ─────────────────────────────────────────────────────────────
 
     /// Size of one element in bytes.
@@ -274,6 +311,39 @@ mod tests {
         DType::F32,
         DType::F64,
     ];
+
+    // ── custom constructor ──────────────────────────────────────────────
+
+    #[test]
+    fn custom_nonempty_is_ok() {
+        assert_eq!(DType::custom("q4"), Ok(DType::Custom("q4")));
+    }
+
+    #[test]
+    fn custom_empty_is_error() {
+        assert_eq!(DType::custom(""), Err(DTypeError::EmptyCustomLabel));
+    }
+
+    #[test]
+    fn custom_constructor_returns_custom_variant() {
+        let dt = DType::custom("fp8_e4m3").unwrap();
+        assert!(dt.is_custom());
+        assert_eq!(dt.name(), "fp8_e4m3");
+    }
+
+    // ── DTypeError ──────────────────────────────────────────────────────
+
+    #[test]
+    fn dtype_error_display() {
+        let err = DTypeError::EmptyCustomLabel;
+        assert!(err.to_string().to_lowercase().contains("empty"));
+    }
+
+    #[test]
+    fn dtype_error_clone_eq() {
+        let err = DTypeError::EmptyCustomLabel;
+        assert_eq!(err.clone(), err);
+    }
 
     // ── size_bytes ───────────────────────────────────────────────────────
 
