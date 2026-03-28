@@ -10,3 +10,6 @@ repository = "https://github.com/vansweej/graphynx"
 cudarc = { version = "0.9", default-features = false, features = ["driver", "std"] }
 thiserror = "2"
 bytemuck = { version = "1", features = ["derive"] }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
