@@ -1,0 +1,34 @@
+# cargo-deny configuration
+# https://embarkstudios.github.io/cargo-deny/
+#
+# Run with: cargo deny check
+
+[licenses]
+# Allow common permissive open-source licenses.
+# Add entries here as new dependencies are added.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+]
+
+[bans]
+# Deny multiple versions of the same crate to keep the dependency tree clean.
+multiple-versions = "warn"
+# Deny wildcard dependencies.
+wildcards = "deny"
+
+[advisories]
+# Warn on crates with known security vulnerabilities (requires cargo-deny >= 0.14).
+version = 2
+ignore = []
+
+[sources]
+# Only allow crates from crates.io and git (no local path deps in production).
+unknown-registry = "warn"
+unknown-git = "warn"

@@ -1,0 +1,7 @@
+[toolchain]
+# Pinned to an exact version to prevent silent upgrades from breaking CUDA
+# build scripts or cudarc API compatibility. Update deliberately with:
+#   1. Change the version here
+#   2. Run: nix flake update
+#   3. Test: cargo build && cargo test && cargo tarpaulin
+channel = "1.94.1"
