@@ -16,6 +16,7 @@ graph TB
         lib["lib.rs<br/>run_kernel&lt;T&gt;"]
         dtype["dtype.rs<br/>DType enum"]
         tensor_type["tensor_type.rs<br/>Dim · Layout · TensorType"]
+        ml_op["ml_op.rs<br/>MlOp catalog"]
     end
 
     subgraph "Backend Layer"
@@ -27,10 +28,12 @@ graph TB
     main --> cuda
     lib --> backend
     lib --> tensor_type
+    lib --> ml_op
     cuda --> backend
     lib -.-> dtype
     tensor_type --> dtype
     tensor_type --> backend
+    ml_op --> tensor_type
 ```
 
 ### Core Abstractions (backend.rs)
@@ -51,6 +54,7 @@ The type system describes tensor data flowing through the computation graph:
 
 - **`dtype.rs`** — `DType` enum: scalar element types (`F32`, `I32`, `U8`, …). Zero dependencies.
 - **`tensor_type.rs`** — `Dim`, `Layout`, `TensorType`, `TensorTypeBuilder`: full tensor metadata including shape, layout, optional device placement, and dimension names. Depends only on `dtype` and `backend::DeviceId`. See [tensor-type.md](tensor-type.md) for full documentation.
+- **`ml_op.rs`** — `MlOp` enum: curated catalog of primitive ML operations (`Conv2d`, `MatMul`, `Relu`, …) and their parameter structs. Depends only on `tensor_type::Dim`. See [ml-op.md](ml-op.md) for full documentation.
 
 ## Module Dependency Graph
 
@@ -60,8 +64,10 @@ graph LR
     main --> cuda_backend["cuda_backend.rs"]
     lib --> backend["backend.rs"]
     lib --> tensor_type["tensor_type.rs"]
+    lib --> ml_op["ml_op.rs"]
     tensor_type --> backend
     tensor_type --> dtype["dtype.rs"]
+    ml_op --> tensor_type
     cuda_backend --> backend
     lib --> bytemuck
     cuda_backend --> cudarc
@@ -114,6 +120,7 @@ sequenceDiagram
 | `src/cuda_backend.rs` | ~373 | CUDA implementation: `CudaBackend`, `CudaBuffer`, `CudaKernelDesc`. |
 | `src/dtype.rs` | ~640 | `DType` enum with size, alignment, naming, and category helpers. |
 | `src/tensor_type.rs` | ~860 | Tensor type system: `Dim`, `Layout`, `TensorType`, `TensorTypeBuilder`, `TensorTypeError`. |
+| `src/ml_op.rs` | ~590 | ML op catalog: `MlOp` enum and all per-op parameter structs. |
 | `src/main.rs` | ~43 | Binary demo: loads PTX, runs `hello_kernel` on GPU. |
 | `build.rs` | ~27 | Build script: emits CUDA linker search paths from `CUDA_PATH`/`NVRTC_PATH`. |
 | `kernel.cu` | ~17 | CUDA C kernel source (doubles each array element). |
@@ -159,7 +166,7 @@ See [tensor-type.md](tensor-type.md) for the full API reference.
 See [ARCHITECTURE.md](../ARCHITECTURE.md) in the repository root for the full long-term plan, including:
 
 - Graph IR with builder pattern (nodes, edges, `GraphBuilder`)
-- ML operation catalog (`MlOp` enum with per-op param structs)
+- ML operation catalog (`MlOp` enum) ✓ **implemented** — see [ml-op.md](ml-op.md)
 - Execution layer (scheduler, buffer manager, executor)
 - Multiple backend implementations (CPU, OpenCL, ONNX Runtime, etc.)
 - Feature-gated backend compilation
