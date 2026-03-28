@@ -552,6 +552,49 @@ pub trait Backend: Send + Sync {
 }
 ```
 
+### 4.1 Future consideration: splitting the Backend trait
+
+The current unified `Backend` trait spans three distinct abstraction layers:
+
+1. **Low-level compute** — explicit device memory management (`alloc`,
+   `upload`, `download`) and raw kernel dispatch (`dispatch_compute`).
+2. **Mid-level ML ops** — primitive operation dispatch (`dispatch_ml_op`)
+   where the backend maps a curated op to its own implementation (cuBLAS,
+   cuDNN, hand-written kernels, etc.).
+3. **High-level inference** — whole-model execution (`dispatch_ml_model`)
+   where the backend owns the runtime session and memory entirely.
+
+As the codebase grows, these responsibilities may pull in different
+directions: a CUDA backend only needs layer 1 (and optionally 2), an ONNX
+Runtime backend only needs layer 3, and a framework like candle or burn may
+sit at layer 2. Forcing every backend to carry default-returning stubs for
+layers it does not participate in adds surface area and makes the trait
+harder to reason about.
+
+If this tension becomes concrete — for example, when a second managed-memory
+backend is added, or when the `dispatch_ml_op` surface grows beyond a
+handful of operations — consider splitting `Backend` into layered traits:
+
+```
+ComputeBackend        — alloc, upload, download, dispatch_compute
+MlOpBackend           — dispatch_ml_op
+InferenceBackend      — dispatch_ml_model
+```
+
+Each backend would implement only the traits matching its capabilities, and
+the executor would accept `&dyn ComputeBackend`, `&dyn MlOpBackend`, or
+`&dyn InferenceBackend` depending on the `NodeKind` being dispatched. The
+existing `BackendCaps` / `NodeKindTag` mechanism could be replaced by trait
+bounds, making unsupported operations a compile-time error rather than a
+runtime `Err(UnsupportedNodeKind)`.
+
+**Do not split preemptively.** The unified trait is simpler while only one or
+two backends exist. Split when the cost of the monolithic trait (unused
+default stubs, confusing implementor experience, mixed memory models in one
+trait) outweighs the cost of the extra trait hierarchy.
+
+---
+
 **How the executor uses capabilities:**
 
 | `MemoryModel` | Before dispatch                     | Dispatch call                           | After dispatch                  |
