@@ -1,215 +1,209 @@
-# AGENTS.md — Developer & Agent Reference
+# AGENTS.md — graphynx agent guide
 
-This file documents the conventions, commands, and code style for the `graphynx` project. All agentic coding agents operating in this repository must follow these guidelines.
+This file is the repo-local guide for coding agents working in `graphynx`.
+Follow it as the source of truth for commands, validation steps, and style.
 
----
+## Environment
 
-## Environment Setup
-
-This project uses a **Nix flake** for reproducible development environments. All build, test, and lint commands must be run inside the Nix dev shell:
-
-```bash
-nix develop
-```
-
-The shell hook sets `CUDA_PATH`, `NVRTC_PATH`, and the necessary `RUSTFLAGS` rpaths automatically. Do not attempt to build outside of `nix develop` unless the CUDA SDK and NVIDIA driver libraries are available on the host.
-
----
-
-## Build Commands
+- This repo uses a Nix flake. Run builds, tests, lint, and coverage inside the
+  dev shell.
+- Preferred one-off form:
 
 ```bash
-cargo build              # Debug build
-cargo build --release    # Release build
+nix develop --command <cmd>
 ```
 
-**CUDA kernel compilation** (must be run inside `nix develop`, required before running the binary):
+- The shell sets `CUDA_PATH`, `NVRTC_PATH`, `RUSTFLAGS`, `NVCC_WRAPPED`,
+  `NVCC_HOST_COMPILER`, and related linker/runtime settings.
+- Do not try to recreate the CUDA environment manually.
+
+## Rule files
+
+- No repo-local Cursor rules were found in `.cursor/rules/` or `.cursorrules`.
+- No repo-local Copilot rules were found in `.github/copilot-instructions.md`.
+- Also read `ARCHITECTURE.md` before making structural changes.
+
+## Current codebase shape
+
+- Public modules in `src/lib.rs` are:
+  - `backend`
+  - `cuda_backend`
+  - `dtype`
+  - `ml_op`
+  - `shape`
+  - `tensor_type`
+- `run_kernel<T>` is the current crate-level convenience API.
+- The codebase is still flat under `src/`; future subdirectories are only plans.
+
+## Design constraints
+
+- Keep the core library backend-agnostic.
+- Keep `unsafe` confined to backend implementations.
+- Prefer validated constructors for public types.
+- Preserve a working default build without requiring CUDA execution paths.
+- Treat `KernelDescriptor` as an extensible trait, not an enum.
+- Avoid patterns that fight the planned immutable-graph architecture.
+
+## Build commands
+
+Run inside the Nix shell:
 
 ```bash
-./compile-kernel.sh      # Compiles kernel.cu → kernel.ptx via nvcc
+nix develop --command cargo build
+nix develop --command cargo build --release
 ```
 
-The `build.rs` script emits `cargo:rustc-link-search=native=` directives for CUDA stub libraries based on the `CUDA_PATH` and `NVRTC_PATH` environment variables set by the Nix shell.
-
----
-
-## Test Commands
+Build the demo CUDA kernel with:
 
 ```bash
-cargo test                          # Run all tests
-cargo test <test_name>              # Run a single test by name (substring match)
-cargo test <module>::<test_name>    # Run a specific test in a specific module
-cargo tarpaulin                     # Code coverage report
+nix develop --command ./compile-kernel.sh
 ```
 
-There are no tests in the codebase yet. When adding tests, place unit tests in `mod tests` blocks at the bottom of each source file, and integration tests in a `tests/` directory.
+Notes:
 
----
+- `compile-kernel.sh` requires the NVCC environment exported by the flake.
+- `build.rs` emits CUDA linker search paths from `CUDA_PATH` and `NVRTC_PATH`.
 
-## Lint and Format Commands
+## Test commands
+
+Primary commands:
 
 ```bash
-cargo clippy                # Run Clippy (default settings — no clippy.toml exists)
-cargo fmt                   # Format code (default rustfmt settings — no rustfmt.toml exists)
-cargo fmt --check           # Check formatting without writing changes
-cargo deny check            # Check licenses, banned crates, advisories, and sources
-cargo outdated              # Check for outdated dependencies
+nix develop --command cargo test
+nix develop --command cargo test --doc
+nix develop --command cargo tarpaulin
 ```
 
-There is no `clippy.toml` or `rustfmt.toml`. Do not introduce `#![allow(...)]` suppressions without a clear justification in a comment.
+Single-test workflows:
 
----
-
-## Toolchain
-
-The Rust toolchain is pinned in `rust-toolchain.toml`:
-
-```
-stable 1.94.1
+```bash
+nix develop --command cargo test some_test_name
+nix develop --command cargo test module::tests::some_test_name
+nix develop --command cargo test module::tests::some_test_name -- --exact
+nix develop --command cargo test ml_op::tests::conv2d_new_valid -- --exact
 ```
 
-Do not change this file without following the documented upgrade procedure (change version → `nix flake update` → `cargo build && cargo test && cargo tarpaulin`).
+Useful scoped runs:
 
----
-
-## Project Structure
-
-```
-src/
-  lib.rs            # Crate root — declares modules, exposes run_kernel<T>
-  main.rs           # Binary entry point — standalone CUDA demo
-  backend.rs        # Core trait definitions (Backend, DeviceBuffer, KernelDescriptor, BackendError)
-  cuda_backend.rs   # CUDA implementation of the Backend trait
-build.rs            # Build script — emits CUDA linker search paths
-kernel.cu           # CUDA C source for the hello_kernel
-compile-kernel.sh   # Compiles kernel.cu → kernel.ptx
-deny.toml           # cargo-deny license/ban/advisory config
-rust-toolchain.toml # Pinned Rust toolchain
-ARCHITECTURE.md     # Detailed long-term architecture plan — read before making structural changes
+```bash
+nix develop --command cargo test ml_op
+nix develop --command cargo test tensor_type::tests
+nix develop --command cargo test --doc ml_op
 ```
 
-The `ARCHITECTURE.md` is the authoritative design reference. Read it before making structural changes.
+Testing expectations:
 
----
+- Run `cargo test` after code changes.
+- Run `cargo tarpaulin` when adding or changing logic; target roughly 90%+.
+- CUDA-specific paths may use `#[cfg(not(tarpaulin_include))]` when coverage is
+  not portable or not meaningful.
+- Prefer unit tests in `mod tests` within the same source file.
 
-## Module Organization
+## Lint / format / maintenance
 
-- Modules are currently **flat** — all source files live in `src/` with no subdirectories.
-- `lib.rs` declares `pub mod backend` and `pub mod cuda_backend`. Nothing is re-exported at the crate root except the `run_kernel` function.
-- All `unsafe` code is **confined to backend implementations** (`cuda_backend.rs`). The core library must remain 100% safe Rust.
-- Planned future layout (see `ARCHITECTURE.md`) introduces `src/core/`, `src/execution/`, `src/backends/` subdirectories. New backend implementations go under `src/backends/`.
+```bash
+nix develop --command cargo fmt
+nix develop --command cargo fmt --check
+nix develop --command cargo clippy
+nix develop --command cargo deny check
+nix develop --command cargo outdated
+```
 
----
+- Fix clippy warnings instead of suppressing them when practical.
+- Do not add `#![allow(...)]` or `#[allow(...)]` without a real reason.
 
-## Code Style
+## Toolchain and dependencies
 
-### Imports
+- Rust is pinned in `rust-toolchain.toml` to `1.94.1`.
+- If you update the toolchain, also run:
 
-Use a two-tier grouping with a blank line between tiers:
+```bash
+nix flake update
+nix develop --command cargo build
+nix develop --command cargo test
+nix develop --command cargo tarpaulin
+```
 
-1. `std` imports and external crate imports
-2. Local crate imports (`use crate::...`)
+- Key dependencies today:
+  - `cudarc = 0.9` with `default-features = false`, `driver`, `std`
+  - `thiserror = 2`
+  - `bytemuck = 1` with `derive`
+- New dependencies should minimize features and must not pull GPU runtime
+  dependencies into core modules.
+
+## Imports and module structure
+
+- Use two import groups with one blank line between them:
+  1. `std` + external crates
+  2. `crate::...`
+- Preferred shape:
 
 ```rust
 use std::sync::Arc;
 
-use cudarc::driver::{CudaDevice, CudaSlice, DeviceSlice, LaunchAsync, LaunchConfig};
+use cudarc::driver::{CudaDevice, CudaSlice};
+use thiserror::Error;
 
-use crate::backend::{Backend, BackendError, DeviceBuffer, KernelDescriptor};
+use crate::backend::{Backend, BackendError};
 ```
 
-Do not mix `std`/external and local imports in the same group. Within each group, no further sub-sorting is required but alphabetical order is preferred.
+- Keep module names `snake_case`.
+- In larger files, use `// ── ... ──` section headings.
 
-### Naming Conventions
+## Naming and formatting
 
-| Category | Convention | Examples |
-|---|---|---|
-| Types, structs, enums | `PascalCase` | `CudaBackend`, `BackendError`, `CudaBuffer` |
-| Traits | `PascalCase` | `Backend`, `DeviceBuffer`, `KernelDescriptor` |
-| Functions and methods | `snake_case` | `run_kernel`, `upload`, `download`, `size_bytes` |
-| Local variables | `snake_case` | `input_bytes`, `output_size_bytes`, `num_elements` |
-| Constants | `UPPER_SNAKE_CASE` | `N`, `MAX_BLOCKS` |
-| Modules | `snake_case` | `backend`, `cuda_backend` |
-| Error enum variants | `PascalCase` | `Cuda`, `InvalidKernel`, `Buffer` |
+- Types, enums, traits: `PascalCase`
+- Functions, methods, modules, locals: `snake_case`
+- Constants: `UPPER_SNAKE_CASE`
+- Error variants: `PascalCase`
+- Prefer descriptive names over ad hoc abbreviations.
+- Follow rustfmt defaults, 4-space indentation, same-line braces, and trailing
+  commas in multiline literals/calls.
 
-### Error Handling
+## Types and API design
 
-- Use `thiserror` for all error type definitions. Do not implement `std::error::Error` manually.
-- All error enums derive `#[derive(Debug, Error)]`.
-- Error variants carry a `String` message: `Cuda(String)`, formatted with `#[error("... {0}")]`.
-- Convert foreign errors at FFI/crate boundaries using `.map_err(|e| BackendError::Cuda(e.to_string()))` — always convert to `String` at the boundary.
-- Use `ok_or_else(|| BackendError::InvalidKernel("...".to_string()))` for `Option` → `Result` conversions.
-- Use `?` for error propagation throughout. Avoid `unwrap()` except in `main.rs` where the panic is guarded by a documented precondition.
-- `main()` returns `Result<(), Box<dyn std::error::Error>>` to allow `?` throughout.
+- Prefer small validated constructors for public types.
+- Fallible constructors should return `Result<Self, ErrorType>` with a dedicated
+  error enum.
+- Keep unchecked constructors only for compatibility or deliberate convenience.
+- Add explicit type annotations when types are not obvious, especially around
+  CUDA slices, trait objects, and generic code.
+- Use `&dyn Trait` for borrowed trait objects and `Box<dyn Trait>` for owned
+  ones.
+- Use `Arc<T>` only when shared ownership is actually needed.
 
-### Type Annotations
+## Error handling
 
-Add explicit type annotations on local variables when the type is non-obvious from context, especially for CUDA and generic types:
+- Use `thiserror::Error` for error enums.
+- Prefer dedicated errors such as `BackendError`, `ShapeError`,
+  `TensorTypeError`, `DTypeError`, and `MlOpError`.
+- Convert foreign errors at boundaries with `.to_string()`.
+- Prefer `?` and `ok_or_else(...)` over manual `match` boilerplate.
+- Avoid `unwrap()` in library code; it is acceptable in tests and narrowly
+  documented demo-only paths.
 
-```rust
-let input: Vec<i32> = vec![1, 2, 3];
-let d_input: CudaSlice<i32> = dev.htod_sync_copy(&input)?;
-let mut d_output: CudaSlice<i32> = dev.alloc_zeros(N)?;
+## Documentation, comments, and unsafe
+
+- Public items should have `///` docs with a concise opening summary.
+- Add `# Errors`, `# Safety`, and `# Examples` when useful.
+- Keep doc examples runnable where practical.
+- Use comments to explain why, not just what.
+- Every `unsafe` block must have a preceding `// Safety:` comment.
+- Core modules must remain safe Rust.
+- Prefer `bytemuck::cast_slice` over manual pointer casts.
+- Downcasting via `Any` is part of the backend abstraction; keep failures
+  specific and actionable.
+
+## Change hygiene
+
+- Match the repo's style of broad unit-test coverage within each file.
+- Add both success-path and failure-path tests for validated constructors.
+- If you change examples in docs, ensure doc-tests still pass.
+- After editing `Cargo.toml`, run `cargo deny check`.
+- Before finishing substantial work, run at least:
+
+```bash
+nix develop --command cargo fmt --check
+nix develop --command cargo clippy
+nix develop --command cargo test
 ```
-
-Express generic bounds inline on function signatures:
-
-```rust
-pub fn run_kernel<T: Pod>(backend: &dyn Backend, ...) -> Result<Vec<T>, BackendError>
-```
-
-Use `Box<dyn Trait>` for owned trait objects and `&dyn Trait` for borrowed ones. Use `Arc<T>` for shared ownership across thread/ownership boundaries (e.g., `Arc<CudaDevice>`).
-
-### Documentation Comments
-
-- Use `///` doc comments on all public items (types, traits, functions, methods).
-- First line: a concise summary sentence.
-- Use `# Flow`, `# Input`, `# Output`, `# Safety`, `# Errors` sections with bullet points or numbered steps for complex items.
-- Use `//` inline comments liberally — every non-trivial statement should explain *why*, not just *what*.
-- Use `// ---` visual separators to group logical sections within long functions (e.g., `// --- Input ---`, `// --- Output ---`).
-- Precede every `unsafe` block with a `// Safety:` comment explaining the precondition:
-
-```rust
-// Safety: kernel arguments match the PTX signature (const int*, int*).
-unsafe { kernel.launch(cfg, (&d_input, &mut d_output)) }?;
-```
-
-### Unsafe Code
-
-- All `unsafe` must be accompanied by a `// Safety:` comment.
-- Confine `unsafe` to backend implementations. The core library layer must never contain `unsafe`.
-- Use `bytemuck::cast_slice` for safe `&[T]` ↔ `&[u8]` reinterpretation instead of manual unsafe casts.
-
-### Formatting
-
-- 4-space indentation (rustfmt default).
-- Opening braces on the same line.
-- Trailing commas in multi-line function calls and struct literals.
-- No alignment padding of struct fields in production code (alignment is acceptable in documentation examples).
-
----
-
-## Key Architectural Constraints
-
-These are non-negotiable design principles (see `ARCHITECTURE.md` for rationale):
-
-1. **Zero backend dependencies in the core layer** — core and execution code must compile and test without any GPU SDK installed.
-2. **All `unsafe` confined to backend implementations** — the core engine is 100% safe Rust.
-3. **All backends are feature-gated** — `cargo build` with no features must give a working CPU-only build.
-4. **`KernelDescriptor` is a trait, not an enum** — extend via new types, never by adding variants to a core enum.
-5. **Graph is immutable after `build()`** — no structural mutations during execution.
-
----
-
-## Dependencies
-
-| Crate | Version | Purpose |
-|---|---|---|
-| `cudarc` | `0.9` | CUDA driver API bindings (`driver`, `std` features only) |
-| `thiserror` | `2` | Error type derivation |
-| `bytemuck` | `1` | Safe byte-level type reinterpretation (`derive` feature) |
-
-When adding new dependencies:
-- Use `default-features = false` and enable only the features actually needed.
-- Run `cargo deny check` after any `Cargo.toml` change to verify license and advisory compliance.
-- Do not add dependencies that pull in GPU SDK crates into any non-backend module.
