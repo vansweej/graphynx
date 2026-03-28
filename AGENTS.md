@@ -1,6 +1,6 @@
 # AGENTS.md — Developer & Agent Reference
 
-This file documents the conventions, commands, and code style for the `rustycuda` project. All agentic coding agents operating in this repository must follow these guidelines.
+This file documents the conventions, commands, and code style for the `graphynx` project. All agentic coding agents operating in this repository must follow these guidelines.
 
 ---
 

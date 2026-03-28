@@ -1,8 +1,10 @@
 [package]
-name = "rustycuda"
+name = "graphynx"
 version = "0.1.0"
 edition = "2021"
-license = "MIT OR Apache-2.0"
+license = "MIT"
+description = "A graph-based runtime for heterogeneous CPU–GPU computation"
+repository = "https://github.com/vansweej/graphynx"
 
 [dependencies]
 cudarc = { version = "0.9", default-features = false, features = ["driver", "std"] }

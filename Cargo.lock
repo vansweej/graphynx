@@ -29,6 +29,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1871a911a2b9a3f66a285896a719159985683bf9903aa2cf89e0c9f53e14552"
 
 [[package]]
+name = "graphynx"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "cudarc",
+ "thiserror",
+]
+
+[[package]]
 name = "proc-macro2"
 version = "1.0.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -44,15 +53,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "41f2619966050689382d2b44f664f4bc593e129785a36d6ee376ddf37259b924"
 dependencies = [
  "proc-macro2",
-]
-
-[[package]]
-name = "rustycuda"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "cudarc",
- "thiserror",
 ]
 
 [[package]]

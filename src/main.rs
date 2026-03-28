@@ -1,4 +1,4 @@
-use rustycuda::cuda_backend::{CudaBackend, CudaKernelDesc};
+use graphynx::cuda_backend::{CudaBackend, CudaKernelDesc};
 
 /// Number of elements in the input/output arrays.
 const N: usize = 10;
@@ -32,7 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Output ---
     // Upload, dispatch, and download are all handled inside run_kernel.
-    let output: Vec<i32> = rustycuda::run_kernel(&backend, &desc, &input)?;
+    let output: Vec<i32> = graphynx::run_kernel(&backend, &desc, &input)?;
     println!("Output: {:?}", output);
 
     Ok(())
