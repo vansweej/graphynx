@@ -16,6 +16,10 @@ const N: usize = 10;
 ///
 /// # Output
 /// Each element doubled: `[6, 14, 2, 18, 8, 12, 4, 16, 10, 20]`
+#[cfg(tarpaulin_include)]
+fn main() {}
+
+#[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Load the pre-compiled PTX; the backend handles device init and PTX registration.
     let ptx = include_str!("../kernel.ptx");

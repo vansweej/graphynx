@@ -1,5 +1,7 @@
+#[cfg(not(tarpaulin_include))]
 use std::sync::Arc;
 
+#[cfg(not(tarpaulin_include))]
 use cudarc::driver::{CudaDevice, CudaSlice, DeviceSlice, LaunchAsync, LaunchConfig};
 
 use crate::backend::{
@@ -10,11 +12,13 @@ use crate::backend::{
 // ── CudaBuffer ────────────────────────────────────────────────────────────────
 
 /// A device-side byte buffer allocated by `CudaBackend`.
+#[cfg(not(tarpaulin_include))]
 pub struct CudaBuffer {
     slice: CudaSlice<u8>,
     device_id: DeviceId,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl DeviceBuffer for CudaBuffer {
     fn size_bytes(&self) -> usize {
         // CudaSlice<u8>: each element is exactly one byte.
@@ -34,6 +38,7 @@ impl DeviceBuffer for CudaBuffer {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl Clone for CudaBuffer {
     fn clone(&self) -> Self {
         Self {
@@ -83,11 +88,13 @@ impl KernelDescriptor for CudaKernelDesc {
 /// Wraps a single CUDA device and a set of pre-loaded PTX modules.
 /// Implements `MemoryModel::Explicit` — the executor manages allocation,
 /// upload, and download of device buffers.
+#[cfg(not(tarpaulin_include))]
 pub struct CudaBackend {
     device: Arc<CudaDevice>,
     device_id: DeviceId,
 }
 
+#[cfg(not(tarpaulin_include))]
 impl CudaBackend {
     /// Open CUDA device `device_ordinal`, load `ptx` as module `module_name`,
     /// and register `"hello_kernel"` as the exported function.
@@ -105,6 +112,7 @@ impl CudaBackend {
     }
 }
 
+#[cfg(not(tarpaulin_include))]
 impl Backend for CudaBackend {
     fn name(&self) -> &str {
         "cuda"

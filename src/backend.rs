@@ -198,11 +198,10 @@ pub trait Backend: Send + Sync {
     /// The default implementation returns `Err(BackendError::UnsupportedNodeKind)`.
     fn dispatch_compute(
         &self,
-        desc: &dyn KernelDescriptor,
-        inputs: &[&dyn DeviceBuffer],
-        outputs: &mut [&mut dyn DeviceBuffer],
+        _desc: &dyn KernelDescriptor,
+        _inputs: &[&dyn DeviceBuffer],
+        _outputs: &mut [&mut dyn DeviceBuffer],
     ) -> Result<(), BackendError> {
-        let _ = (desc, inputs, outputs);
         Err(BackendError::UnsupportedNodeKind)
     }
 
@@ -213,11 +212,10 @@ pub trait Backend: Send + Sync {
     /// The default implementation returns `Err(BackendError::UnsupportedNodeKind)`.
     fn dispatch_ml_op(
         &self,
-        op_name: &str,
-        inputs: &[&[u8]],
-        outputs: &mut [Vec<u8>],
+        _op_name: &str,
+        _inputs: &[&[u8]],
+        _outputs: &mut [Vec<u8>],
     ) -> Result<(), BackendError> {
-        let _ = (op_name, inputs, outputs);
         Err(BackendError::UnsupportedNodeKind)
     }
 
@@ -228,11 +226,10 @@ pub trait Backend: Send + Sync {
     /// `Err(BackendError::UnsupportedNodeKind)`.
     fn dispatch_ml_model(
         &self,
-        model_name: &str,
-        inputs: &[&[u8]],
-        outputs: &mut [Vec<u8>],
+        _model_name: &str,
+        _inputs: &[&[u8]],
+        _outputs: &mut [Vec<u8>],
     ) -> Result<(), BackendError> {
-        let _ = (model_name, inputs, outputs);
         Err(BackendError::UnsupportedNodeKind)
     }
 }
