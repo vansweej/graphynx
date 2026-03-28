@@ -21,6 +21,8 @@ fn main() {}
 
 #[cfg(not(tarpaulin_include))]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    env_logger::init();
+
     // Load the pre-compiled PTX; the backend handles device init and PTX registration.
     let ptx = include_str!("../kernel.ptx");
     let backend = CudaBackend::new(0, ptx, "hello")?;

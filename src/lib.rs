@@ -31,6 +31,7 @@ pub mod shape;
 pub mod tensor_type;
 
 use bytemuck::Pod;
+use log::debug;
 
 use backend::{Backend, BackendError, KernelDescriptor};
 
@@ -52,6 +53,13 @@ pub fn run_kernel<T: Pod>(
     let input_bytes: &[u8] = bytemuck::cast_slice(input);
     let output_size_bytes = input_bytes.len();
 
+    debug!(
+        "run_kernel: backend='{}', input_bytes={}, elements={}",
+        backend.name(),
+        input_bytes.len(),
+        input.len()
+    );
+
     // --- Input ---
     // Allocate a device buffer and upload the input bytes into it.
     let input_buf = backend.alloc(input_bytes.len())?;
@@ -68,6 +76,8 @@ pub fn run_kernel<T: Pod>(
     backend.download(output_buf.as_ref(), &mut output_bytes)?;
 
     let output: Vec<T> = bytemuck::cast_slice(&output_bytes).to_vec();
+
+    debug!("run_kernel: completed, output_elements={}", output.len());
     Ok(output)
 }
 

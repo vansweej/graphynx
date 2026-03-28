@@ -1,5 +1,6 @@
 use std::any::Any;
 
+use log::warn;
 use thiserror::Error;
 
 // ── Error type ────────────────────────────────────────────────────────────────
@@ -244,6 +245,10 @@ pub trait Backend: Send + Sync {
         _inputs: &[&dyn DeviceBuffer],
         _outputs: &mut [&mut dyn DeviceBuffer],
     ) -> Result<(), BackendError> {
+        warn!(
+            "dispatch_compute not supported by backend '{}'",
+            self.name()
+        );
         Err(BackendError::UnsupportedNodeKind)
     }
 
@@ -258,6 +263,7 @@ pub trait Backend: Send + Sync {
         _inputs: &[&[u8]],
         _outputs: &mut [Vec<u8>],
     ) -> Result<(), BackendError> {
+        warn!("dispatch_ml_op not supported by backend '{}'", self.name());
         Err(BackendError::UnsupportedNodeKind)
     }
 
@@ -272,6 +278,10 @@ pub trait Backend: Send + Sync {
         _inputs: &[&[u8]],
         _outputs: &mut [Vec<u8>],
     ) -> Result<(), BackendError> {
+        warn!(
+            "dispatch_ml_model not supported by backend '{}'",
+            self.name()
+        );
         Err(BackendError::UnsupportedNodeKind)
     }
 }

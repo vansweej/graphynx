@@ -3,6 +3,8 @@ use std::sync::Arc;
 
 #[cfg(not(tarpaulin_include))]
 use cudarc::driver::{CudaDevice, CudaSlice, DeviceSlice, LaunchAsync, LaunchConfig};
+#[cfg(not(tarpaulin_include))]
+use log::{debug, info};
 
 use crate::backend::{
     Backend, BackendCaps, BackendError, DeviceBuffer, DeviceId, KernelDescriptor, MemoryModel,
@@ -99,6 +101,11 @@ impl CudaBackend {
     /// Open CUDA device `device_ordinal`, load `ptx` as module `module_name`,
     /// and register `"hello_kernel"` as the exported function.
     pub fn new(device_ordinal: usize, ptx: &str, module_name: &str) -> Result<Self, BackendError> {
+        info!(
+            "Initialising CUDA backend on device {}, module '{}'",
+            device_ordinal, module_name
+        );
+
         let device = CudaDevice::new(device_ordinal)
             .map_err(|e| BackendError::Device(format!("CUDA: {e}")))?;
 
@@ -108,6 +115,7 @@ impl CudaBackend {
 
         let device_id = DeviceId::new(format!("cuda:{device_ordinal}"));
 
+        info!("CUDA backend ready: {}", device_id);
         Ok(Self { device, device_id })
     }
 }
@@ -133,6 +141,7 @@ impl Backend for CudaBackend {
     // ── Explicit-memory operations ────────────────────────────────────────
 
     fn alloc(&self, size_bytes: usize) -> Result<Box<dyn DeviceBuffer>, BackendError> {
+        debug!("CUDA alloc: {} bytes on {}", size_bytes, self.device_id);
         let slice: CudaSlice<u8> = self
             .device
             .alloc_zeros(size_bytes)
@@ -145,6 +154,7 @@ impl Backend for CudaBackend {
     }
 
     fn upload(&self, host: &[u8], dst: &dyn DeviceBuffer) -> Result<(), BackendError> {
+        debug!("CUDA upload: {} bytes to {}", host.len(), self.device_id);
         let cuda_dst = dst
             .as_any()
             .downcast_ref::<CudaBuffer>()
@@ -161,6 +171,11 @@ impl Backend for CudaBackend {
     }
 
     fn download(&self, src: &dyn DeviceBuffer, host: &mut [u8]) -> Result<(), BackendError> {
+        debug!(
+            "CUDA download: {} bytes from {}",
+            src.size_bytes(),
+            self.device_id
+        );
         let cuda_src = src
             .as_any()
             .downcast_ref::<CudaBuffer>()
@@ -189,6 +204,14 @@ impl Backend for CudaBackend {
             .ok_or_else(|| {
                 BackendError::InvalidKernel("dispatch_compute: not a CudaKernelDesc".to_string())
             })?;
+
+        debug!(
+            "CUDA dispatch_compute: func='{}', module='{}', grid={:?}, block={:?}",
+            kernel_desc.func_name,
+            kernel_desc.module_name,
+            kernel_desc.grid_dim,
+            kernel_desc.block_dim
+        );
 
         let kernel = self
             .device
