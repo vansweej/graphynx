@@ -1,5 +1,6 @@
 pub mod backend;
 pub mod cuda_backend;
+pub mod dtype;
 
 use bytemuck::Pod;
 
