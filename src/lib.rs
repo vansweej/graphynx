@@ -1,6 +1,30 @@
+//! Graphynx — graph-based runtime for heterogeneous CPU/GPU computation.
+//!
+//! # Modules
+//!
+//! | Module | Purpose |
+//! |---|---|
+//! | [`backend`] | Core traits (`Backend`, `DeviceBuffer`, `KernelDescriptor`), `DeviceId`, `BackendError` |
+//! | [`cuda_backend`] | CUDA implementation of `Backend` via `cudarc` |
+//! | [`dtype`] | `DType` — scalar element type enum (`F32`, `I32`, …) |
+//! | [`tensor_type`] | `TensorType`, `Dim`, `Layout` — validated tensor metadata for graph edges |
+//!
+//! # Quick start
+//!
+//! ```ignore
+//! use graphynx::cuda_backend::{CudaBackend, CudaKernelDesc};
+//!
+//! let ptx = include_str!("../kernel.ptx");
+//! let backend = CudaBackend::new(0, ptx, "hello")?;
+//! let desc    = CudaKernelDesc::new("hello_kernel", [1, 1, 1], [10, 1, 1]);
+//! let input   = vec![1i32, 2, 3, 4, 5];
+//! let output: Vec<i32> = graphynx::run_kernel(&backend, &desc, &input)?;
+//! ```
+
 pub mod backend;
 pub mod cuda_backend;
 pub mod dtype;
+pub mod tensor_type;
 
 use bytemuck::Pod;
 
