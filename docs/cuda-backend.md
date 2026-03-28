@@ -147,3 +147,7 @@ extern "C" __global__ void hello_kernel(const int* in, int* out) {
 ```
 
 Compile with `./compile-kernel.sh` inside `nix develop`. This produces `kernel.ptx` which is loaded by `CudaBackend::new`.
+
+## Coverage
+
+The CUDA backend uses `#[cfg(not(tarpaulin_include))]` on its `Backend` trait implementation because CUDA-specific code paths require a GPU and cannot contribute to coverage in CI environments. Test coverage for the backend trait interface is provided by mock backends in `src/lib.rs` and `src/backend.rs`.

@@ -97,9 +97,42 @@ println!("{:?}", dt); // prints "F32"
 | `F64` | 8 | 8 | true | false | true |
 | `Custom(s)` | None | None | false | false | false |
 
+## `DTypeError`
+
+Errors produced when constructing a `DType` through a safe constructor.
+
+```mermaid
+graph TD
+    DTypeError --> EmptyCustomLabel["EmptyCustomLabel<br/>Custom label was empty"]
+```
+
+Derives: `Debug`, `Error`, `Clone`, `Eq`, `PartialEq`.
+
 ## Custom Variant
 
 The `Custom(&'static str)` variant is an escape hatch for backend-specific types that the core layer doesn't know about (e.g. quantized formats like `q4_0`, `fp8_e4m3`). Its size, alignment, and category are all unknown.
+
+### Safe Constructor
+
+Use `DType::custom(label)` to construct a `Custom` variant with validation:
+
+```rust
+use graphynx::dtype::DType;
+
+// Valid custom type
+let q4 = DType::custom("q4").unwrap();
+assert!(q4.is_custom());
+
+// Empty label is rejected
+assert!(DType::custom("").is_err());
+```
+
+| Constructor | Parameters | Returns | Description |
+|---|---|---|---|
+| `DType::custom(label)` | `&'static str` | `Result<DType, DTypeError>` | Safe constructor — rejects empty labels |
+| `DType::Custom(label)` | `&'static str` | `DType` | Direct variant construction (unchecked) |
+
+### Equality
 
 Two `Custom` values are equal only if their string labels are identical:
 

@@ -85,13 +85,20 @@ cargo deny check
 src/
   lib.rs            # crate root — run_kernel<T> convenience entry point
   main.rs           # standalone CUDA demo
-  backend.rs        # Backend trait, DeviceBuffer, KernelDescriptor, BackendError
+  backend.rs        # Backend trait, DeviceBuffer, KernelDescriptor, BackendError, DeviceId
   cuda_backend.rs   # CUDA implementation of the Backend trait
+  dtype.rs          # DType scalar element type enum, DTypeError
+  tensor_type.rs    # Dim, Layout, TensorType, TensorTypeBuilder, TensorTypeError
+  ml_op.rs          # MlOp enum, parameter structs, MlOpError, safe constructors
+  shape/
+    mod.rs          # Shape struct, ShapeError, constructors, strides, reshape
+    ops.rs          # Broadcasting and compatibility logic
 build.rs            # emits CUDA linker search paths for cargo
 kernel.cu           # CUDA C source for the hello_kernel
 compile-kernel.sh   # compiles kernel.cu → kernel.ptx via nvcc
 ARCHITECTURE.md     # full long-term architecture plan
 AGENTS.md           # build/lint/style reference for agentic coding tools
+docs/               # detailed module documentation
 ```
 
 ## License
