@@ -7,6 +7,7 @@
 //! | [`backend`] | Core traits (`Backend`, `DeviceBuffer`, `KernelDescriptor`), `DeviceId`, `BackendError` |
 //! | [`cuda_backend`] | CUDA implementation of `Backend` via `cudarc` |
 //! | [`dtype`] | `DType` — scalar element type enum (`F32`, `I32`, …) |
+//! | [`shape`] | `Shape` — validated tensor shape with broadcasting, reshape validation, and stride computation |
 //! | [`tensor_type`] | `TensorType`, `Dim`, `Layout` — validated tensor metadata for graph edges |
 //! | [`ml_op`] | `MlOp` — curated catalog of primitive ML operations and their parameter structs |
 //!
@@ -26,6 +27,7 @@ pub mod backend;
 pub mod cuda_backend;
 pub mod dtype;
 pub mod ml_op;
+pub mod shape;
 pub mod tensor_type;
 
 use bytemuck::Pod;

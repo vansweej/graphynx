@@ -1,6 +1,6 @@
 use std::fmt;
 
-use crate::tensor_type::Dim;
+use crate::shape::Shape;
 
 // ── Parameter structs ─────────────────────────────────────────────────────────
 
@@ -99,7 +99,7 @@ pub struct SoftmaxParams {
 pub struct ReshapeParams {
     /// Target shape. May contain [`Dim::Dynamic`] or [`Dim::Symbolic`]
     /// entries to propagate runtime dimensions.
-    pub target_shape: Vec<Dim>,
+    pub target_shape: Shape,
 }
 
 /// Parameters for a tensor transpose / permutation.
@@ -376,6 +376,8 @@ impl fmt::Display for MlOp {
 
 #[cfg(test)]
 mod tests {
+    use crate::tensor_type::Dim;
+
     use super::*;
 
     // ── MlOp::name() ─────────────────────────────────────────────────────
@@ -479,7 +481,7 @@ mod tests {
     #[test]
     fn name_reshape() {
         let op = MlOp::Reshape(ReshapeParams {
-            target_shape: vec![Dim::fixed(4).unwrap(), Dim::Dynamic],
+            target_shape: Shape::new(vec![Dim::fixed(4).unwrap(), Dim::Dynamic]).unwrap(),
         });
         assert_eq!(op.name(), "Reshape");
     }
@@ -651,7 +653,7 @@ mod tests {
     #[test]
     fn not_parameterless_reshape() {
         assert!(!MlOp::Reshape(ReshapeParams {
-            target_shape: vec![],
+            target_shape: Shape::scalar(),
         })
         .is_parameterless());
     }
@@ -946,11 +948,11 @@ mod tests {
     #[test]
     fn reshape_params_with_dynamic_dim() {
         let p = ReshapeParams {
-            target_shape: vec![Dim::fixed(8).unwrap(), Dim::Dynamic],
+            target_shape: Shape::new(vec![Dim::fixed(8).unwrap(), Dim::Dynamic]).unwrap(),
         };
-        assert_eq!(p.target_shape.len(), 2);
-        assert!(matches!(p.target_shape[0], Dim::Fixed(8)));
-        assert!(matches!(p.target_shape[1], Dim::Dynamic));
+        assert_eq!(p.target_shape.dims().len(), 2);
+        assert!(matches!(p.target_shape.dims()[0], Dim::Fixed(8)));
+        assert!(matches!(p.target_shape.dims()[1], Dim::Dynamic));
     }
 
     #[test]
