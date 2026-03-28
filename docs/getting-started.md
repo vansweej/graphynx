@@ -77,6 +77,7 @@ src/
   cuda_backend.rs     # CUDA implementation of the Backend trait
   dtype.rs            # DType scalar element type enum
   tensor_type.rs      # Tensor type system: Dim, Layout, TensorType, TensorTypeBuilder
+  ml_op.rs            # ML op catalog: MlOp enum and per-op parameter structs
   main.rs             # Binary entry point (CUDA demo)
 build.rs              # Build script (CUDA linker paths)
 kernel.cu             # CUDA kernel source
@@ -140,6 +141,33 @@ let image = TensorType::builder(DType::F32)
 println!("{}", image); // f32[batch, 3, 224, 224] NCHW @ cuda:0
 ```
 
+### Describing ML operations
+
+```rust
+use graphynx::ml_op::{MlOp, Conv2dParams, SoftmaxParams};
+
+// Parameterless activations
+let relu = MlOp::Relu;
+println!("{}", relu); // "Relu"
+
+// Convolution
+let conv = MlOp::Conv2d(Conv2dParams {
+    kernel_size: [3, 3],
+    stride:      [1, 1],
+    padding:     [1, 1],
+    dilation:    [1, 1],
+    groups:      1,
+});
+assert!(conv.is_spatial_2d());
+
+// Custom op with serialised params
+let custom = MlOp::Custom {
+    name:   "my_fused_op".to_string(),
+    params: vec![/* backend-specific bytes */],
+};
+assert!(custom.is_custom());
+```
+
 ## Rust Toolchain
 
 The Rust toolchain is pinned in `rust-toolchain.toml` to `stable 1.94.1`. Do not change this without following the upgrade procedure documented in `AGENTS.md`.
@@ -151,4 +179,5 @@ The Rust toolchain is pinned in `rust-toolchain.toml` to `stable 1.94.1`. Do not
 - [CUDA Backend](cuda-backend.md) — CUDA-specific implementation details
 - [DType](dtype.md) — scalar element type system
 - [Tensor Type System](tensor-type.md) — `Dim`, `Layout`, `TensorType`, construction, compatibility, and display
+- [ML Op Catalog](ml-op.md) — `MlOp` enum, all parameter structs, query methods, and extension pattern
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — full long-term design plan
