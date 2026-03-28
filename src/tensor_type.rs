@@ -4,6 +4,7 @@ use thiserror::Error;
 
 use crate::backend::DeviceId;
 use crate::dtype::DType;
+use crate::shape::Shape;
 
 // ── TensorTypeError ───────────────────────────────────────────────────────────
 
@@ -289,7 +290,7 @@ impl fmt::Display for Layout {
 
 /// Complete description of a tensor flowing along a graph edge.
 ///
-/// Combines a scalar element type ([`DType`]), a shape ([`Vec<Dim>`]), a memory
+/// Combines a scalar element type ([`DType`]), a [`Shape`], a memory
 /// [`Layout`], optional human-readable dimension names, and an optional
 /// [`DeviceId`] indicating where the tensor lives.
 ///
@@ -297,7 +298,7 @@ impl fmt::Display for Layout {
 ///
 /// - No [`Dim::Fixed(0)`] in `shape`.
 /// - No [`Dim::Symbolic("")`] in `shape`.
-/// - If `dim_names` is `Some`, its length equals `shape.len()`.
+/// - If `dim_names` is `Some`, its length equals `shape.rank()`.
 /// - [`Layout::NCHW`] and [`Layout::NHWC`] require rank 4.
 /// - Rank-0 (scalar) tensors must use [`Layout::Any`].
 ///
@@ -308,7 +309,7 @@ impl fmt::Display for Layout {
 pub struct TensorType {
     // All fields are private to uphold the invariants above.
     dtype: DType,
-    shape: Vec<Dim>,
+    shape: Shape,
     layout: Layout,
     dim_names: Option<Vec<String>>,
     device: Option<DeviceId>,
@@ -341,6 +342,13 @@ impl TensorType {
     /// ```
     pub fn new(dtype: DType, shape: Vec<Dim>, layout: Layout) -> Result<Self, TensorTypeError> {
         Self::validate_shape_and_layout(&shape, layout)?;
+        // Shape::new validates dims (no Fixed(0), no Symbolic("")).
+        // We already validated in validate_shape_and_layout, so construct directly.
+        let shape = Shape::new(shape).map_err(|e| match e {
+            crate::shape::ShapeError::ZeroDimension => TensorTypeError::ZeroDimension,
+            crate::shape::ShapeError::EmptySymbol => TensorTypeError::EmptySymbol,
+            _ => unreachable!("Shape::new only returns ZeroDimension or EmptySymbol"),
+        })?;
         Ok(TensorType {
             dtype,
             shape,
@@ -368,7 +376,7 @@ impl TensorType {
     pub fn scalar(dtype: DType) -> Self {
         TensorType {
             dtype,
-            shape: vec![],
+            shape: Shape::scalar(),
             layout: Layout::Any,
             dim_names: None,
             device: None,
@@ -399,7 +407,7 @@ impl TensorType {
         }
         Ok(TensorType {
             dtype,
-            shape: vec![Dim::Fixed(len)],
+            shape: Shape::vector(len).map_err(|_| TensorTypeError::ZeroDimension)?,
             layout: Layout::RowMajor,
             dim_names: None,
             device: None,
@@ -431,7 +439,7 @@ impl TensorType {
         }
         Ok(TensorType {
             dtype,
-            shape: vec![Dim::Fixed(rows), Dim::Fixed(cols)],
+            shape: Shape::matrix(rows, cols).map_err(|_| TensorTypeError::ZeroDimension)?,
             layout: Layout::RowMajor,
             dim_names: None,
             device: None,
@@ -476,8 +484,8 @@ impl TensorType {
         self.dtype
     }
 
-    /// The shape as a slice of [`Dim`]s.
-    pub fn shape(&self) -> &[Dim] {
+    /// The shape of this tensor.
+    pub fn shape(&self) -> &Shape {
         &self.shape
     }
 
@@ -488,7 +496,7 @@ impl TensorType {
 
     /// Optional per-dimension human-readable names.
     ///
-    /// If present, the slice has the same length as [`shape`][Self::shape].
+    /// If present, the slice has the same length as [`shape().rank()`][Shape::rank].
     pub fn dim_names(&self) -> Option<&[String]> {
         self.dim_names.as_deref()
     }
@@ -502,12 +510,12 @@ impl TensorType {
 
     /// Number of dimensions (0 for scalars).
     pub fn rank(&self) -> usize {
-        self.shape.len()
+        self.shape.rank()
     }
 
     /// Returns `true` for rank-0 tensors.
     pub fn is_scalar(&self) -> bool {
-        self.shape.is_empty()
+        self.shape.is_scalar()
     }
 
     /// Total number of elements, if every dimension is [`Dim::Fixed`].
@@ -533,13 +541,7 @@ impl TensorType {
     /// assert_eq!(t.num_elements(), None);
     /// ```
     pub fn num_elements(&self) -> Option<usize> {
-        // Scalar: one element with no dims.
-        if self.shape.is_empty() {
-            return Some(1);
-        }
-        self.shape
-            .iter()
-            .try_fold(1usize, |acc, dim| dim.fixed_value().map(|n| acc * n))
+        self.shape.num_elements()
     }
 
     /// Total size in bytes, if every dimension is fixed and `dtype` has a
@@ -593,7 +595,7 @@ impl TensorType {
     /// assert_eq!(t_nchw.layout(), Layout::NCHW);
     /// ```
     pub fn with_layout(mut self, layout: Layout) -> Result<Self, TensorTypeError> {
-        Self::validate_shape_and_layout(&self.shape, layout)?;
+        Self::validate_shape_and_layout(self.shape.dims(), layout)?;
         self.layout = layout;
         Ok(self)
     }
@@ -638,10 +640,10 @@ impl TensorType {
     /// assert_eq!(named.dim_names().unwrap()[0], "batch");
     /// ```
     pub fn with_dim_names(mut self, names: Vec<String>) -> Result<Self, TensorTypeError> {
-        if names.len() != self.shape.len() {
+        if names.len() != self.shape.rank() {
             return Err(TensorTypeError::DimNamesMismatch {
                 names: names.len(),
-                shape: self.shape.len(),
+                shape: self.shape.rank(),
             });
         }
         self.dim_names = Some(names);
@@ -681,17 +683,12 @@ impl TensorType {
     /// assert!(producer.is_compatible_with(&consumer));
     /// ```
     pub fn is_compatible_with(&self, other: &TensorType) -> bool {
-        // dtype and rank must match first.
-        if self.dtype != other.dtype || self.rank() != other.rank() {
+        // dtype must match.
+        if self.dtype != other.dtype {
             return false;
         }
-        // Each dim pair must be compatible.
-        if !self
-            .shape
-            .iter()
-            .zip(other.shape.iter())
-            .all(|(a, b)| a.is_compatible_with(b))
-        {
+        // Shape compatibility (rank + per-dim checks).
+        if !self.shape.is_compatible_with(&other.shape) {
             return false;
         }
         // Layouts must be compatible.
@@ -754,15 +751,8 @@ impl fmt::Display for TensorType {
         // dtype
         write!(f, "{}", self.dtype)?;
 
-        // [dim, dim, ...]
-        f.write_str("[")?;
-        for (i, dim) in self.shape.iter().enumerate() {
-            if i > 0 {
-                f.write_str(", ")?;
-            }
-            write!(f, "{dim}")?;
-        }
-        f.write_str("]")?;
+        // shape (Shape's Display produces [dim, dim, ...])
+        write!(f, "{}", self.shape)?;
 
         // layout
         write!(f, " {}", self.layout)?;
@@ -844,19 +834,26 @@ impl TensorTypeBuilder {
         // Validate shape + layout invariants.
         TensorType::validate_shape_and_layout(&self.shape, self.layout)?;
 
+        // Build the Shape (validates dims internally).
+        let shape = Shape::new(self.shape).map_err(|e| match e {
+            crate::shape::ShapeError::ZeroDimension => TensorTypeError::ZeroDimension,
+            crate::shape::ShapeError::EmptySymbol => TensorTypeError::EmptySymbol,
+            _ => unreachable!("Shape::new only returns ZeroDimension or EmptySymbol"),
+        })?;
+
         // Validate dim_names length.
         if let Some(ref names) = self.dim_names {
-            if names.len() != self.shape.len() {
+            if names.len() != shape.rank() {
                 return Err(TensorTypeError::DimNamesMismatch {
                     names: names.len(),
-                    shape: self.shape.len(),
+                    shape: shape.rank(),
                 });
             }
         }
 
         Ok(TensorType {
             dtype: self.dtype,
-            shape: self.shape,
+            shape,
             layout: self.layout,
             dim_names: self.dim_names,
             device: self.device,
@@ -1449,7 +1446,7 @@ mod tests {
 
         #[test]
         fn shape_accessor() {
-            assert_eq!(sample().shape(), &[Dim::Fixed(2), Dim::Fixed(3)]);
+            assert_eq!(sample().shape().dims(), &[Dim::Fixed(2), Dim::Fixed(3)]);
         }
 
         #[test]
