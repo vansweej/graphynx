@@ -25,15 +25,16 @@ nix develop --command <cmd>
 
 ## Current codebase shape
 
-- Public modules in `src/lib.rs` are:
-  - `backend`
-  - `cuda_backend`
-  - `dtype`
-  - `ml_op`
-  - `shape`
-  - `tensor_type`
+- Primary modules in `src/lib.rs` are:
+  - `backends` — `Backend` trait, `BackendError`, `DeviceId`, `KernelDescriptor`
+    - `backends::compute::cuda` — `CudaBackend`, `CudaBuffer`, `CudaKernelDesc`
+  - `core` — pure, backend-agnostic types and ops
+    - `core::types` — `DType`, `Dim`, `Layout`, `TensorType`, `Shape`
+    - `core::ops` — `MlOp` enum, `MlOpError`, per-op parameter structs
+- Backward-compatible re-export modules (inline in `lib.rs`):
+  - `backend`, `cuda_backend`, `dtype`, `ml_op`, `shape`, `tensor_type`
 - `run_kernel<T>` is the current crate-level convenience API.
-- The codebase is still flat under `src/`; future subdirectories are only plans.
+- The source tree is structured under `src/backends/` and `src/core/`.
 
 ## Design constraints
 
@@ -144,7 +145,7 @@ use std::sync::Arc;
 use cudarc::driver::{CudaDevice, CudaSlice};
 use thiserror::Error;
 
-use crate::backend::{Backend, BackendError};
+use crate::backends::{Backend, BackendError};
 ```
 
 - Keep module names `snake_case`.

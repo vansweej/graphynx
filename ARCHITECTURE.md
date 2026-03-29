@@ -83,7 +83,7 @@ src/core/
   types/
     mod.rs
     dtype.rs         -- DType enum
-    dim.rs           -- Dim (static / dynamic)
+    dim.rs           -- Dim (Fixed / Dynamic / Symbolic)
     tensor_type.rs   -- TensorType
     layout.rs        -- Layout enum
     buffer.rs        -- AnyBuffer trait, Buffer<T>
@@ -870,10 +870,13 @@ src/
     types/
       mod.rs
       dtype.rs                -- DType
-      dim.rs                  -- Dim (Static / Dynamic)
+      dim.rs                  -- Dim (Fixed / Dynamic / Symbolic)
       tensor_type.rs          -- TensorType
       layout.rs               -- Layout
-      buffer.rs               -- AnyBuffer trait, Buffer<T>
+      shape/
+        mod.rs                -- Shape struct, ShapeError, strides, reshape
+        ops.rs                -- broadcasting, compatibility
+      buffer.rs               -- AnyBuffer trait, Buffer<T>  (planned)
     ops/
       mod.rs                  -- MlOp enum
       params.rs               -- per-op parameter structs

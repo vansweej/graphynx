@@ -2,9 +2,11 @@ use std::fmt;
 
 use thiserror::Error;
 
-use crate::backend::DeviceId;
-use crate::dtype::DType;
-use crate::shape::Shape;
+use crate::backends::DeviceId;
+use crate::core::types::dim::Dim;
+use crate::core::types::dtype::DType;
+use crate::core::types::layout::Layout;
+use crate::core::types::shape::{Shape, ShapeError};
 
 // ── TensorTypeError ───────────────────────────────────────────────────────────
 
@@ -50,240 +52,6 @@ pub enum TensorTypeError {
         /// Number of dimensions in the shape.
         shape: usize,
     },
-}
-
-// ── Dim ───────────────────────────────────────────────────────────────────────
-
-/// A single tensor dimension — either a known constant or a runtime value.
-///
-/// Splitting the "unknown" case into [`Dim::Dynamic`] and [`Dim::Symbolic`]
-/// avoids the footgun of `Dynamic(Option<String>)`, where `None` and `Some("")`
-/// are both valid spellings of subtly different things.
-///
-/// # Compatibility
-///
-/// Two dims are compatible for a graph edge if the values they could represent
-/// at runtime are always the same. See [`Dim::is_compatible_with`].
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub enum Dim {
-    /// Known at graph-build time. Always ≥ 1 when constructed through
-    /// [`Dim::fixed`]; the bare variant can still be created directly for
-    /// tests or internal use, but `TensorType` constructors validate it.
-    Fixed(usize),
-
-    /// Unknown until execution. Matches any other dimension value.
-    Dynamic,
-
-    /// A named unknown dimension. All `Symbolic` dims with the same name in a
-    /// graph must resolve to the same runtime value, enabling consistency
-    /// checks (e.g. every `"batch"` dim must be the same integer at runtime).
-    Symbolic(String),
-}
-
-impl Dim {
-    // ── Constructors ─────────────────────────────────────────────────────
-
-    /// Construct a [`Dim::Fixed`] dimension, rejecting zero.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorTypeError::ZeroDimension`] if `n == 0`.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use graphynx::tensor_type::Dim;
-    ///
-    /// assert!(Dim::fixed(3).is_ok());
-    /// assert!(Dim::fixed(0).is_err());
-    /// ```
-    pub fn fixed(n: usize) -> Result<Self, TensorTypeError> {
-        if n == 0 {
-            Err(TensorTypeError::ZeroDimension)
-        } else {
-            Ok(Dim::Fixed(n))
-        }
-    }
-
-    /// Construct a [`Dim::Symbolic`] dimension, rejecting empty names.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TensorTypeError::EmptySymbol`] if `name` is empty.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use graphynx::tensor_type::Dim;
-    ///
-    /// assert!(Dim::symbolic("batch").is_ok());
-    /// assert!(Dim::symbolic("").is_err());
-    /// ```
-    pub fn symbolic(name: impl Into<String>) -> Result<Self, TensorTypeError> {
-        let s = name.into();
-        if s.is_empty() {
-            Err(TensorTypeError::EmptySymbol)
-        } else {
-            Ok(Dim::Symbolic(s))
-        }
-    }
-
-    // ── Queries ──────────────────────────────────────────────────────────
-
-    /// Returns `true` if this is a [`Dim::Fixed`] variant.
-    pub fn is_fixed(&self) -> bool {
-        matches!(self, Dim::Fixed(_))
-    }
-
-    /// Returns `true` if this is [`Dim::Dynamic`] or [`Dim::Symbolic`].
-    pub fn is_dynamic(&self) -> bool {
-        matches!(self, Dim::Dynamic | Dim::Symbolic(_))
-    }
-
-    /// Returns `true` if this is a [`Dim::Symbolic`] variant.
-    pub fn is_symbolic(&self) -> bool {
-        matches!(self, Dim::Symbolic(_))
-    }
-
-    /// Returns the fixed value if this is [`Dim::Fixed`], otherwise `None`.
-    pub fn fixed_value(&self) -> Option<usize> {
-        match self {
-            Dim::Fixed(n) => Some(*n),
-            _ => None,
-        }
-    }
-
-    /// Returns the symbolic name if this is [`Dim::Symbolic`], otherwise `None`.
-    pub fn symbol(&self) -> Option<&str> {
-        match self {
-            Dim::Symbolic(s) => Some(s.as_str()),
-            _ => None,
-        }
-    }
-
-    // ── Compatibility ────────────────────────────────────────────────────
-
-    /// Returns `true` if `self` and `other` are compatible for a graph edge.
-    ///
-    /// Compatibility is symmetric. The rules are:
-    ///
-    /// | LHS | RHS | Result |
-    /// |---|---|---|
-    /// | `Fixed(a)` | `Fixed(b)` | `a == b` |
-    /// | `Fixed(_)` | `Dynamic` | `true` |
-    /// | `Fixed(_)` | `Symbolic(_)` | `true` |
-    /// | `Dynamic` | `Dynamic` | `true` |
-    /// | `Dynamic` | `Symbolic(_)` | `true` |
-    /// | `Symbolic(a)` | `Symbolic(b)` | `a == b` |
-    ///
-    /// Two `Symbolic` dims with **different** names are incompatible: they may
-    /// resolve to different values at runtime.
-    pub fn is_compatible_with(&self, other: &Dim) -> bool {
-        match (self, other) {
-            // Fixed vs Fixed: both must be the same value.
-            (Dim::Fixed(a), Dim::Fixed(b)) => a == b,
-            // Fixed is always compatible with Dynamic or Symbolic (unknown dims
-            // can match any concrete size).
-            (Dim::Fixed(_), Dim::Dynamic | Dim::Symbolic(_)) => true,
-            (Dim::Dynamic | Dim::Symbolic(_), Dim::Fixed(_)) => true,
-            // Two unnamed unknowns are always compatible.
-            (Dim::Dynamic, Dim::Dynamic) => true,
-            // An unnamed unknown is compatible with a named unknown.
-            (Dim::Dynamic, Dim::Symbolic(_)) | (Dim::Symbolic(_), Dim::Dynamic) => true,
-            // Two named unknowns must share the same name.
-            (Dim::Symbolic(a), Dim::Symbolic(b)) => a == b,
-        }
-    }
-}
-
-impl fmt::Display for Dim {
-    /// Formats the dimension as its value (`"3"`), `"?"` for dynamic, or the
-    /// symbolic name (`"batch"`) for symbolic dims.
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Dim::Fixed(n) => write!(f, "{n}"),
-            Dim::Dynamic => f.write_str("?"),
-            Dim::Symbolic(s) => f.write_str(s),
-        }
-    }
-}
-
-// ── Layout ────────────────────────────────────────────────────────────────────
-
-/// Standard memory layout for a contiguous multi-dimensional tensor.
-///
-/// The variant identifies both the traversal order and — for image layouts —
-/// the expected rank. [`Layout::Any`] acts as a wildcard in compatibility
-/// checks, meaning "this side imposes no layout constraint".
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum Layout {
-    /// Row-major / C-contiguous. Last dimension varies fastest.
-    ///
-    /// Default for most linear algebra operations.
-    RowMajor,
-
-    /// Column-major / Fortran-contiguous. First dimension varies fastest.
-    ColMajor,
-
-    /// Batch × Channels × Height × Width. Requires rank 4.
-    ///
-    /// PyTorch's default image layout.
-    NCHW,
-
-    /// Batch × Height × Width × Channels. Requires rank 4.
-    ///
-    /// TensorFlow's default image layout.
-    NHWC,
-
-    /// No layout constraint. Compatible with every other layout.
-    ///
-    /// Used for scalars and for tensors where the layout is unknown or
-    /// irrelevant (e.g. the output of a model inference backend).
-    Any,
-}
-
-impl Layout {
-    // ── Compatibility ────────────────────────────────────────────────────
-
-    /// Returns `true` if `self` and `other` are compatible for a graph edge.
-    ///
-    /// [`Layout::Any`] matches every layout. All other pairs require equality.
-    pub fn is_compatible_with(&self, other: &Layout) -> bool {
-        matches!(self, Layout::Any) || matches!(other, Layout::Any) || self == other
-    }
-
-    // ── Queries ──────────────────────────────────────────────────────────
-
-    /// Returns `true` for image-channel layouts ([`NCHW`][Layout::NCHW] and
-    /// [`NHWC`][Layout::NHWC]).
-    pub fn is_image_layout(&self) -> bool {
-        matches!(self, Layout::NCHW | Layout::NHWC)
-    }
-
-    /// The rank a tensor must have to use this layout, if any.
-    ///
-    /// Returns `Some(4)` for [`NCHW`][Layout::NCHW] and
-    /// [`NHWC`][Layout::NHWC]. Returns `None` for all other layouts, meaning
-    /// any rank is acceptable.
-    pub fn expected_rank(&self) -> Option<usize> {
-        match self {
-            Layout::NCHW | Layout::NHWC => Some(4),
-            _ => None,
-        }
-    }
-}
-
-impl fmt::Display for Layout {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let s = match self {
-            Layout::RowMajor => "RowMajor",
-            Layout::ColMajor => "ColMajor",
-            Layout::NCHW => "NCHW",
-            Layout::NHWC => "NHWC",
-            Layout::Any => "Any",
-        };
-        f.write_str(s)
-    }
 }
 
 // ── TensorType ────────────────────────────────────────────────────────────────
@@ -345,8 +113,8 @@ impl TensorType {
         // Shape::new validates dims (no Fixed(0), no Symbolic("")).
         // We already validated in validate_shape_and_layout, so construct directly.
         let shape = Shape::new(shape).map_err(|e| match e {
-            crate::shape::ShapeError::ZeroDimension => TensorTypeError::ZeroDimension,
-            crate::shape::ShapeError::EmptySymbol => TensorTypeError::EmptySymbol,
+            ShapeError::ZeroDimension => TensorTypeError::ZeroDimension,
+            ShapeError::EmptySymbol => TensorTypeError::EmptySymbol,
             _ => unreachable!("Shape::new only returns ZeroDimension or EmptySymbol"),
         })?;
         Ok(TensorType {
@@ -836,8 +604,8 @@ impl TensorTypeBuilder {
 
         // Build the Shape (validates dims internally).
         let shape = Shape::new(self.shape).map_err(|e| match e {
-            crate::shape::ShapeError::ZeroDimension => TensorTypeError::ZeroDimension,
-            crate::shape::ShapeError::EmptySymbol => TensorTypeError::EmptySymbol,
+            ShapeError::ZeroDimension => TensorTypeError::ZeroDimension,
+            ShapeError::EmptySymbol => TensorTypeError::EmptySymbol,
             _ => unreachable!("Shape::new only returns ZeroDimension or EmptySymbol"),
         })?;
 
@@ -867,8 +635,8 @@ impl TensorTypeBuilder {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::backend::DeviceId;
-    use crate::dtype::DType;
+    use crate::backends::DeviceId;
+    use crate::core::types::dtype::DType;
 
     use super::*;
 
@@ -881,7 +649,10 @@ mod tests {
 
         #[test]
         fn fixed_zero_is_error() {
-            assert_eq!(Dim::fixed(0), Err(TensorTypeError::ZeroDimension));
+            assert_eq!(
+                Dim::fixed(0),
+                Err(crate::core::types::dim::DimError::ZeroDimension)
+            );
         }
 
         #[test]
@@ -904,7 +675,10 @@ mod tests {
 
         #[test]
         fn symbolic_empty_is_error() {
-            assert_eq!(Dim::symbolic(""), Err(TensorTypeError::EmptySymbol));
+            assert_eq!(
+                Dim::symbolic(""),
+                Err(crate::core::types::dim::DimError::EmptySymbol)
+            );
         }
 
         #[test]

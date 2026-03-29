@@ -1,4 +1,4 @@
-use graphynx::cuda_backend::{CudaBackend, CudaKernelDesc};
+use graphynx::backends::compute::cuda::{CudaBackend, CudaKernelDesc};
 
 /// Number of elements in the input/output arrays.
 const N: usize = 10;

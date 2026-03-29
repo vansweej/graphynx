@@ -4,7 +4,7 @@ use std::fmt;
 
 use thiserror::Error;
 
-use crate::tensor_type::Dim;
+use crate::core::types::dim::Dim;
 
 // ── ShapeError ───────────────────────────────────────────────────────────────
 
@@ -759,16 +759,13 @@ mod tests {
 
         #[test]
         fn row_major_4d() {
-            // [1, 3, 224, 224]
             let s = Shape::from_fixed(&[1, 3, 224, 224]).unwrap();
-            // strides: 3*224*224=150528, 224*224=50176, 224, 1
             assert_eq!(s.row_major_strides(), Some(vec![150528, 50176, 224, 1]));
         }
 
         #[test]
         fn col_major_4d() {
             let s = Shape::from_fixed(&[1, 3, 224, 224]).unwrap();
-            // strides: 1, 1*1=1, 1*3=3, 3*224=672
             assert_eq!(s.col_major_strides(), Some(vec![1, 1, 3, 672]));
         }
     }

@@ -1,3 +1,5 @@
+pub mod compute;
+
 use std::any::Any;
 
 use log::warn;
@@ -70,7 +72,7 @@ impl DeviceId {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::backend::DeviceId;
+    /// use graphynx::backends::DeviceId;
     ///
     /// assert!(DeviceId::try_new("cuda:0").is_ok());
     /// assert!(DeviceId::try_new("").is_err());

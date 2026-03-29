@@ -6,7 +6,7 @@ use cudarc::driver::{CudaDevice, CudaSlice, DeviceSlice, LaunchAsync, LaunchConf
 #[cfg(not(tarpaulin_include))]
 use log::{debug, info};
 
-use crate::backend::{
+use crate::backends::{
     Backend, BackendCaps, BackendError, DeviceBuffer, DeviceId, KernelDescriptor, MemoryModel,
     NodeKindTag,
 };
