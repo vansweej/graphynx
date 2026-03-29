@@ -4,7 +4,7 @@ use std::fmt;
 
 use thiserror::Error;
 
-use crate::core::types::dim::Dim;
+use crate::types::dim::Dim;
 
 // ── ShapeError ───────────────────────────────────────────────────────────────
 
@@ -93,8 +93,8 @@ impl Shape {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::shape::Shape;
-    /// use graphynx::tensor_type::Dim;
+    /// use graph_core::types::shape::Shape;
+    /// use graph_core::types::dim::Dim;
     ///
     /// let s = Shape::new(vec![Dim::Fixed(3), Dim::Fixed(224)]).unwrap();
     /// assert_eq!(s.rank(), 2);
@@ -111,7 +111,7 @@ impl Shape {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::shape::Shape;
+    /// use graph_core::types::shape::Shape;
     ///
     /// let s = Shape::scalar();
     /// assert!(s.is_scalar());
@@ -130,7 +130,7 @@ impl Shape {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::shape::Shape;
+    /// use graph_core::types::shape::Shape;
     ///
     /// let s = Shape::vector(1024).unwrap();
     /// assert_eq!(s.rank(), 1);
@@ -154,7 +154,7 @@ impl Shape {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::shape::Shape;
+    /// use graph_core::types::shape::Shape;
     ///
     /// let s = Shape::matrix(3, 4).unwrap();
     /// assert_eq!(s.rank(), 2);
@@ -178,7 +178,7 @@ impl Shape {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::shape::Shape;
+    /// use graph_core::types::shape::Shape;
     ///
     /// let s = Shape::from_fixed(&[1, 3, 224, 224]).unwrap();
     /// assert_eq!(s.rank(), 4);
@@ -216,8 +216,8 @@ impl Shape {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::shape::Shape;
-    /// use graphynx::tensor_type::Dim;
+    /// use graph_core::types::shape::Shape;
+    /// use graph_core::types::dim::Dim;
     ///
     /// let s = Shape::from_fixed(&[2, 3, 4]).unwrap();
     /// assert_eq!(s.num_elements(), Some(24));
@@ -258,7 +258,7 @@ impl Shape {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::shape::Shape;
+    /// use graph_core::types::shape::Shape;
     ///
     /// let a = Shape::from_fixed(&[2, 3, 4]).unwrap();
     /// let b = Shape::from_fixed(&[6, 4]).unwrap();
@@ -296,7 +296,7 @@ impl Shape {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::shape::Shape;
+    /// use graph_core::types::shape::Shape;
     ///
     /// let s = Shape::from_fixed(&[2, 3, 4]).unwrap();
     /// assert_eq!(s.row_major_strides(), Some(vec![12, 4, 1]));
@@ -330,7 +330,7 @@ impl Shape {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::shape::Shape;
+    /// use graph_core::types::shape::Shape;
     ///
     /// let s = Shape::from_fixed(&[2, 3, 4]).unwrap();
     /// assert_eq!(s.col_major_strides(), Some(vec![1, 2, 6]));
@@ -376,15 +376,6 @@ impl Shape {
 
 impl fmt::Display for Shape {
     /// Formats the shape as `[dim, dim, ...]`.
-    ///
-    /// # Examples
-    ///
-    /// ```text
-    /// []
-    /// [1024]
-    /// [batch, 3, 224, 224]
-    /// [?, 256]
-    /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("[")?;
         for (i, dim) in self.dims.iter().enumerate() {

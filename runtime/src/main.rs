@@ -1,4 +1,4 @@
-use graphynx::backends::compute::cuda::{CudaBackend, CudaKernelDesc};
+use backends_cuda::{CudaBackend, CudaKernelDesc};
 
 /// Number of elements in the input/output arrays.
 const N: usize = 10;
@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     // Load the pre-compiled PTX; the backend handles device init and PTX registration.
-    let ptx = include_str!("../kernel.ptx");
+    let ptx = include_str!("../../backends-cuda/kernel.ptx");
     let backend = CudaBackend::new(0, ptx, "hello")?;
 
     // Describe which kernel to run and how to partition the work:
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // --- Output ---
     // Upload, dispatch, and download are all handled inside run_kernel.
-    let output: Vec<i32> = graphynx::run_kernel(&backend, &desc, &input)?;
+    let output: Vec<i32> = runtime::run_kernel(&backend, &desc, &input)?;
     println!("Output: {:?}", output);
 
     Ok(())

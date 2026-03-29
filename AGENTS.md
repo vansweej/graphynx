@@ -25,16 +25,27 @@ nix develop --command <cmd>
 
 ## Current codebase shape
 
-- Primary modules in `src/lib.rs` are:
-  - `backends` — `Backend` trait, `BackendError`, `DeviceId`, `KernelDescriptor`
-    - `backends::compute::cuda` — `CudaBackend`, `CudaBuffer`, `CudaKernelDesc`
-  - `core` — pure, backend-agnostic types and ops
-    - `core::types` — `DType`, `Dim`, `Layout`, `TensorType`, `Shape`
-    - `core::ops` — `MlOp` enum, `MlOpError`, per-op parameter structs
-- Backward-compatible re-export modules (inline in `lib.rs`):
-  - `backend`, `cuda_backend`, `dtype`, `ml_op`, `shape`, `tensor_type`
-- `run_kernel<T>` is the current crate-level convenience API.
-- The source tree is structured under `src/backends/` and `src/core/`.
+This repo is a **Cargo workspace** with four member crates rooted at the repo root:
+
+- `core/` — crate name `graph-core` — pure backend-agnostic types and ML-op catalog
+  - `graph_core::types` — `DType`, `Dim`, `Layout`, `TensorType`, `Shape`, `DeviceId`
+  - `graph_core::ops` — `MlOp` enum, `MlOpError`, per-op parameter structs
+- `backends/` — crate name `backends` — `Backend` trait, `BackendError`, `KernelDescriptor`, `DeviceId` (re-exported from `graph-core`)
+- `backends-cuda/` — crate name `backends-cuda` — `CudaBackend`, `CudaBuffer`, `CudaKernelDesc`
+- `runtime/` — crate name `runtime` — `run_kernel` convenience API, `demo` binary, integration tests
+
+Dependency graph:
+```
+graph-core
+    ↑
+backends      (depends on graph-core)
+    ↑
+backends-cuda (depends on backends)
+    ↑
+runtime       (depends on graph-core + backends + backends-cuda)
+```
+
+CUDA build artifacts (`build.rs`, `kernel.cu`, `kernel.ptx`, `compile-kernel.sh`) live in `backends-cuda/`.
 
 ## Design constraints
 

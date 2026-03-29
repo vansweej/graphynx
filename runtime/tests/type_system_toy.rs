@@ -1,7 +1,7 @@
-use graphynx::dtype::DType;
-use graphynx::ml_op::{Conv2dParams, LinearParams, MlOp};
-use graphynx::shape::Shape;
-use graphynx::tensor_type::{Dim, Layout, TensorType};
+use graph_core::ops::{Conv2dParams, LinearParams, MlOp};
+use graph_core::types::dtype::DType;
+use graph_core::types::shape::Shape;
+use graph_core::types::{Dim, Layout, TensorType};
 
 #[test]
 fn toy_dtype_shape_and_tensor_type_work_together() {

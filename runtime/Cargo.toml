@@ -1,0 +1,26 @@
+[package]
+name        = "runtime"
+description = "Graphynx runtime — run_kernel convenience API and CUDA demo"
+version.workspace     = true
+edition.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+
+[[bin]]
+name = "demo"
+path = "src/main.rs"
+
+[dependencies]
+backends      = { workspace = true }
+backends-cuda = { workspace = true }
+graph-core    = { workspace = true }
+bytemuck      = { workspace = true }
+log           = { workspace = true }
+env_logger    = { workspace = true }
+
+[dev-dependencies]
+bytemuck   = { workspace = true }
+env_logger = { workspace = true }
+
+[lints]
+workspace = true

@@ -851,76 +851,78 @@ impl Backend for OnnxBackend {
 
 ---
 
-## 8. Proposed source tree
+## 8. Source tree
+
+The repository is a **Cargo workspace** with four member crates. All crates
+are rooted directly in the repository root. There is a single `Cargo.lock` at
+the workspace root.
 
 ```
-src/
-  lib.rs                      -- crate root, public API re-exports
-  main.rs                     -- demo entry point
+Cargo.toml                    -- workspace manifest (resolver = "2")
+Cargo.lock
 
-  core/
-    mod.rs
-    graph/
-      mod.rs
-      node.rs                 -- Node, NodeId, NodeKind
-      edge.rs                 -- Edge, Port
-      builder.rs              -- GraphBuilder
-      ir.rs                   -- Graph adjacency structure
-      validate.rs             -- cycle detection, type checks
+core/                         -- crate: graph-core
+  Cargo.toml
+  src/
+    lib.rs                    -- public API re-exports
     types/
       mod.rs
+      device_id.rs            -- DeviceId, DeviceIdError
       dtype.rs                -- DType
-      dim.rs                  -- Dim (Fixed / Dynamic / Symbolic)
+      dim.rs                  -- Dim (Static / Dynamic)
       tensor_type.rs          -- TensorType
       layout.rs               -- Layout
       shape/
-        mod.rs                -- Shape struct, ShapeError, strides, reshape
+        mod.rs                -- Shape, ShapeError, strides, reshape
         ops.rs                -- broadcasting, compatibility
-      buffer.rs               -- AnyBuffer trait, Buffer<T>  (planned)
     ops/
-      mod.rs                  -- MlOp enum
+      mod.rs                  -- MlOp enum, MlOpError
       params.rs               -- per-op parameter structs
-    error.rs                  -- GraphError, ValidationError
 
-  execution/
-    mod.rs
-    scheduler/
-      mod.rs
-      topo.rs                 -- topological sort
-    buffer/
-      mod.rs
-      manager.rs              -- BufferManager
-      location.rs             -- LocationTracker
-    executor.rs               -- Executor run loop
-
-  backends/
-    mod.rs                    -- Backend trait, DeviceId, BackendCaps,
-                              -- BackendRegistry, KernelDescriptor trait
-
-    compute/
-      mod.rs
-      cpu.rs                  -- CpuBackend              (always)
-      cuda.rs                 -- CudaBackend              (feature = "cuda")
-      opencl.rs               -- OpenClBackend            (feature = "opencl")
-      vulkan.rs               -- VulkanBackend            (feature = "vulkan")
-      wgpu.rs                 -- WgpuBackend              (feature = "wgpu")
-      fpga.rs                 -- FpgaBackend              (feature = "fpga")
-
+backends/                     -- crate: backends
+  Cargo.toml
+  src/
+    lib.rs                    -- Backend trait, BackendError, KernelDescriptor,
+                              -- pub re-exports of DeviceId / DeviceIdError
     ml/
-      mod.rs
-      onnx.rs                 -- OnnxBackend              (feature = "onnx")
-      torch.rs                -- TorchBackend             (feature = "torch")
-      tflite.rs               -- TfLiteBackend            (feature = "tflite")
-      candle.rs               -- CandleBackend            (feature = "candle")
-      burn.rs                 -- BurnBackend              (feature = "burn")
+      mod.rs                  -- ML runtime backend stubs / helpers
 
-kernels/                      -- Backend-specific compute sources
-  cuda/
-    hello_kernel.cu
-    hello_kernel.ptx
-  spirv/
-  wgsl/
+backends-cuda/                -- crate: backends-cuda
+  Cargo.toml
+  build.rs                    -- emits CUDA linker search paths
+  compile-kernel.sh           -- compiles kernel.cu → kernel.ptx via NVCC
+  kernel.cu                   -- CUDA C source for the demo kernel
+  kernel.ptx                  -- pre-compiled PTX (checked in)
+  src/
+    lib.rs                    -- CudaBackend, CudaBuffer, CudaKernelDesc
+
+runtime/                      -- crate: runtime
+  Cargo.toml
+  src/
+    lib.rs                    -- run_kernel convenience API + unit tests
+    main.rs                   -- binary: demo  (cfg-gated for tarpaulin)
+  tests/
+    common/
+      mod.rs                  -- shared mock infrastructure
+    run_kernel_toy.rs         -- integration tests for run_kernel
+    type_system_toy.rs        -- integration tests for graph-core types
 ```
+
+**Dependency graph:**
+
+```
+graph-core
+    ↑
+backends      (depends on graph-core)
+    ↑
+backends-cuda (depends on backends)
+    ↑
+runtime       (depends on graph-core + backends + backends-cuda)
+```
+
+**Key invariant:** `graph-core` is backend-agnostic — it depends only on
+`std`, `thiserror`, and `bytemuck`. All CUDA and hardware-specific code lives
+in `backends-cuda`. `unsafe` is confined to backend crates.
 
 ---
 

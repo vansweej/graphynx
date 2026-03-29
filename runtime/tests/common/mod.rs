@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::cell::RefCell;
 
-use graphynx::backend::{
+use backends::{
     Backend, BackendCaps, BackendError, DeviceBuffer, DeviceId, KernelDescriptor, MemoryModel,
     NodeKindTag,
 };

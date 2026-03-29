@@ -76,7 +76,7 @@ pub enum MlOpError {
 /// Curated catalog of primitive ML operations.
 ///
 /// Each variant maps to a well-known operation that multiple backends can
-/// implement. The engine validates input/output [`crate::core::types::TensorType`]
+/// implement. The engine validates input/output [`crate::types::TensorType`]
 /// against an op's signature at graph-build time.
 ///
 /// # Categories
@@ -102,7 +102,7 @@ pub enum MlOpError {
 /// # Examples
 ///
 /// ```
-/// use graphynx::ml_op::{MlOp, Conv2dParams, SoftmaxParams};
+/// use graph_core::ops::{MlOp, Conv2dParams, SoftmaxParams};
 ///
 /// let conv = MlOp::Conv2d(Conv2dParams {
 ///     kernel_size: [3, 3],
@@ -203,7 +203,7 @@ impl MlOp {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::MlOp;
+    /// use graph_core::ops::MlOp;
     ///
     /// assert!(MlOp::custom("my_op", vec![]).is_ok());
     /// assert!(MlOp::custom("", vec![]).is_err());
@@ -224,7 +224,7 @@ impl MlOp {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::{MlOp, MatMulParams};
+    /// use graph_core::ops::{MlOp, MatMulParams};
     ///
     /// assert_eq!(MlOp::Relu.name(), "Relu");
     /// assert_eq!(MlOp::MatMul(MatMulParams { transpose_a: false, transpose_b: false }).name(), "MatMul");
@@ -264,7 +264,7 @@ impl MlOp {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::MlOp;
+    /// use graph_core::ops::MlOp;
     ///
     /// assert!(MlOp::Relu.is_parameterless());
     /// assert!(MlOp::Add.is_parameterless());
@@ -282,7 +282,7 @@ impl MlOp {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::MlOp;
+    /// use graph_core::ops::MlOp;
     ///
     /// assert!(MlOp::Custom { name: "foo".into(), params: vec![] }.is_custom());
     /// assert!(!MlOp::Relu.is_custom());
@@ -297,7 +297,7 @@ impl MlOp {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::{MlOp, Conv2dParams, PoolParams};
+    /// use graph_core::ops::{MlOp, Conv2dParams, PoolParams};
     ///
     /// assert!(MlOp::Conv2d(Conv2dParams {
     ///     kernel_size: [3, 3], stride: [1, 1],
@@ -326,7 +326,7 @@ impl fmt::Display for MlOp {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::MlOp;
+    /// use graph_core::ops::MlOp;
     ///
     /// assert_eq!(MlOp::Relu.to_string(), "Relu");
     /// assert_eq!(MlOp::Custom { name: "bar".into(), params: vec![] }.to_string(), "bar");
@@ -340,8 +340,8 @@ impl fmt::Display for MlOp {
 
 #[cfg(test)]
 mod tests {
-    use crate::core::types::dim::Dim;
-    use crate::core::types::shape::Shape;
+    use crate::types::dim::Dim;
+    use crate::types::shape::Shape;
 
     use super::*;
 

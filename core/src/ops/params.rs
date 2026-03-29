@@ -1,4 +1,4 @@
-use crate::core::types::shape::Shape;
+use crate::types::shape::Shape;
 
 use super::MlOpError;
 
@@ -35,7 +35,7 @@ impl Conv2dParams {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::Conv2dParams;
+    /// use graph_core::ops::Conv2dParams;
     ///
     /// let p = Conv2dParams::new([3, 3], [1, 1], [1, 1], [1, 1], 1).unwrap();
     /// assert_eq!(p.kernel_size, [3, 3]);
@@ -124,7 +124,7 @@ impl LinearParams {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::LinearParams;
+    /// use graph_core::ops::LinearParams;
     ///
     /// let p = LinearParams::new(512, 256, true).unwrap();
     /// assert_eq!(p.in_features, 512);
@@ -174,7 +174,7 @@ impl PoolParams {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::PoolParams;
+    /// use graph_core::ops::PoolParams;
     ///
     /// let p = PoolParams::new([2, 2], [2, 2], [0, 0]).unwrap();
     /// assert_eq!(p.kernel_size, [2, 2]);
@@ -231,7 +231,7 @@ impl BatchNormParams {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::BatchNormParams;
+    /// use graph_core::ops::BatchNormParams;
     ///
     /// let p = BatchNormParams::new(64, 1e-5, Some(0.1)).unwrap();
     /// assert_eq!(p.num_features, 64);
@@ -283,7 +283,7 @@ impl LayerNormParams {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::LayerNormParams;
+    /// use graph_core::ops::LayerNormParams;
     ///
     /// let p = LayerNormParams::new(vec![768], 1e-12).unwrap();
     /// assert_eq!(p.normalized_shape, vec![768]);
@@ -361,7 +361,7 @@ impl TransposeParams {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::TransposeParams;
+    /// use graph_core::ops::TransposeParams;
     ///
     /// let p = TransposeParams::new(vec![1, 0]).unwrap();
     /// assert_eq!(p.perm, vec![1, 0]);
@@ -446,7 +446,7 @@ impl DropoutParams {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::ml_op::DropoutParams;
+    /// use graph_core::ops::DropoutParams;
     ///
     /// let p = DropoutParams::new(0.5).unwrap();
     /// assert_eq!(p.p, 0.5);
