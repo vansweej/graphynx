@@ -1,9 +1,11 @@
-pub mod compute;
-
 use std::any::Any;
 
 use log::warn;
 use thiserror::Error;
+
+pub use graph_core::types::device_id::{DeviceId, DeviceIdError};
+
+pub mod ml;
 
 // ── Error type ────────────────────────────────────────────────────────────────
 
@@ -37,73 +39,6 @@ pub enum BackendError {
     /// The backend does not support the requested `MlOp` variant.
     #[error("Unsupported ML op")]
     UnsupportedOp,
-}
-
-// ── DeviceIdError ─────────────────────────────────────────────────────────────
-
-/// Errors produced when constructing a [`DeviceId`] through a safe constructor.
-#[derive(Debug, Error, Clone, Eq, PartialEq)]
-pub enum DeviceIdError {
-    /// A device identifier was empty. Device IDs must be non-empty so they
-    /// can meaningfully identify a backend instance.
-    #[error("Device ID must not be empty")]
-    Empty,
-}
-
-// ── DeviceId ──────────────────────────────────────────────────────────────────
-
-/// Identifies a backend instance at runtime.
-///
-/// By convention, use the form `"<backend>:<index>"` for hardware backends
-/// and `"<runtime>:<device>"` for ML runtime backends.
-///
-/// # Examples
-/// `"cpu"`, `"cuda:0"`, `"opencl:1"`, `"onnx:cpu"`, `"libtorch:cuda:0"`
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct DeviceId(String);
-
-impl DeviceId {
-    /// Construct a `DeviceId` from any non-empty string.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`DeviceIdError::Empty`] if the identifier string is empty.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use graphynx::backends::DeviceId;
-    ///
-    /// assert!(DeviceId::try_new("cuda:0").is_ok());
-    /// assert!(DeviceId::try_new("").is_err());
-    /// ```
-    pub fn try_new(id: impl Into<String>) -> Result<Self, DeviceIdError> {
-        let s = id.into();
-        if s.is_empty() {
-            Err(DeviceIdError::Empty)
-        } else {
-            Ok(Self(s))
-        }
-    }
-
-    /// Construct a `DeviceId` from any string without validation.
-    ///
-    /// Prefer [`DeviceId::try_new`] in production code. This constructor
-    /// exists for convenience in tests and known-good literals.
-    pub fn new(id: impl Into<String>) -> Self {
-        Self(id.into())
-    }
-
-    /// Returns the device identifier as a string slice.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::fmt::Display for DeviceId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
 }
 
 // ── Capabilities ──────────────────────────────────────────────────────────────

@@ -1,69 +1,16 @@
-//! Graphynx — graph-based runtime for heterogeneous CPU/GPU computation.
-//!
-//! # Modules
-//!
-//! | Module | Purpose |
-//! |---|---|
-//! | [`backends`] | Core traits (`Backend`, `DeviceBuffer`, `KernelDescriptor`), `DeviceId`, `BackendError` |
-//! | [`backends::compute::cuda`] | CUDA implementation of `Backend` via `cudarc` |
-//! | [`core::types::dtype`] | `DType` — scalar element type enum (`F32`, `I32`, …) |
-//! | [`core::types::shape`] | `Shape` — validated tensor shape with broadcasting, reshape validation, and stride computation |
-//! | [`core::types`] | `TensorType`, `Dim`, `Layout` — validated tensor metadata for graph edges |
-//! | [`core::ops`] | `MlOp` — curated catalog of primitive ML operations and their parameter structs |
+//! Graphynx runtime — convenience kernel dispatch API.
 //!
 //! # Quick start
 //!
 //! ```ignore
-//! use graphynx::backends::compute::cuda::{CudaBackend, CudaKernelDesc};
+//! use backends_cuda::{CudaBackend, CudaKernelDesc};
 //!
-//! let ptx = include_str!("../kernel.ptx");
+//! let ptx = include_str!("../../backends-cuda/kernel.ptx");
 //! let backend = CudaBackend::new(0, ptx, "hello")?;
 //! let desc    = CudaKernelDesc::new("hello_kernel", [1, 1, 1], [10, 1, 1]);
 //! let input   = vec![1i32, 2, 3, 4, 5];
-//! let output: Vec<i32> = graphynx::run_kernel(&backend, &desc, &input)?;
+//! let output: Vec<i32> = runtime::run_kernel(&backend, &desc, &input)?;
 //! ```
-
-pub mod backends;
-pub mod core;
-
-// ── Backward-compatible path aliases ─────────────────────────────────────────
-//
-// Integration tests and downstream code still use the old flat module paths
-// (e.g. `graphynx::backend::BackendError`, `graphynx::ml_op::Conv2dParams`).
-// These inline modules re-export everything under the old names so that
-// no call-sites need to change.
-
-/// Backward-compatible re-export of [`backends`].
-pub mod backend {
-    pub use crate::backends::*;
-}
-
-/// Backward-compatible re-export of [`backends::compute::cuda`].
-pub mod cuda_backend {
-    pub use crate::backends::compute::cuda::*;
-}
-
-/// Backward-compatible re-export of [`core::types::dtype`].
-pub mod dtype {
-    pub use crate::core::types::dtype::*;
-}
-
-/// Backward-compatible re-export of [`core::types::shape`].
-pub mod shape {
-    pub use crate::core::types::shape::*;
-}
-
-/// Backward-compatible re-export of [`core::types`] (Dim, Layout, TensorType, etc.).
-pub mod tensor_type {
-    pub use crate::core::types::*;
-}
-
-/// Backward-compatible re-export of [`core::ops`] (MlOp, MlOpError, param structs).
-pub mod ml_op {
-    pub use crate::core::ops::*;
-}
-
-// ── run_kernel ────────────────────────────────────────────────────────────────
 
 use bytemuck::Pod;
 use log::debug;
@@ -123,8 +70,12 @@ mod tests {
     use std::any::Any;
     use std::cell::RefCell;
 
+    use backends::{
+        Backend, BackendCaps, BackendError, DeviceBuffer, DeviceId, KernelDescriptor, MemoryModel,
+        NodeKindTag,
+    };
+
     use super::*;
-    use backends::{BackendCaps, DeviceBuffer, DeviceId, MemoryModel, NodeKindTag};
 
     // ── Mock infrastructure ──────────────────────────────────────────────
 

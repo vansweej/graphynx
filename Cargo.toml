@@ -1,19 +1,31 @@
-[package]
-name = "graphynx"
-version = "0.1.0"
-edition = "2021"
-license = "MIT"
-description = "A graph-based runtime for heterogeneous CPU–GPU computation"
-repository = "https://github.com/vansweej/graphynx"
+[workspace]
+resolver = "2"
+members = [
+    "core",
+    "backends",
+    "backends-cuda",
+    "runtime",
+]
 
-[dependencies]
-cudarc = { version = "0.9", default-features = false, features = ["driver", "std"] }
-thiserror = "2"
-bytemuck = { version = "1", features = ["derive"] }
-log = "0.4"
+[workspace.package]
+version      = "0.1.0"
+edition      = "2021"
+license      = "MIT"
+repository   = "https://github.com/vansweej/graphynx"
+
+[workspace.dependencies]
+# External
+bytemuck   = { version = "1", features = ["derive"] }
+cudarc     = { version = "0.9", default-features = false, features = ["driver", "std"] }
 env_logger = "0.11"
+log        = "0.4"
+thiserror  = "2"
 
-[dev-dependencies]
+# Workspace-internal
+graph-core    = { path = "core" }
+backends      = { path = "backends" }
+backends-cuda = { path = "backends-cuda" }
+runtime       = { path = "runtime" }
 
-[lints.rust]
+[workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }

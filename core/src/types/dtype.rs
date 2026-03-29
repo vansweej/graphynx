@@ -78,7 +78,7 @@ impl DType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::dtype::DType;
     ///
     /// assert!(DType::custom("q4").is_ok());
     /// assert!(DType::custom("").is_err());
@@ -101,7 +101,7 @@ impl DType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::dtype::DType;
     ///
     /// assert_eq!(DType::F32.size_bytes(), Some(4));
     /// assert_eq!(DType::Bool.size_bytes(), Some(1));
@@ -127,7 +127,7 @@ impl DType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::dtype::DType;
     ///
     /// assert_eq!(DType::F64.alignment(), Some(8));
     /// assert_eq!(DType::F16.alignment(), Some(2));
@@ -149,7 +149,7 @@ impl DType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::dtype::DType;
     ///
     /// assert_eq!(DType::F32.name(), "f32");
     /// assert_eq!(DType::BF16.name(), "bf16");
@@ -181,7 +181,7 @@ impl DType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::dtype::DType;
     ///
     /// assert!(DType::F32.is_float());
     /// assert!(!DType::I32.is_float());
@@ -197,7 +197,7 @@ impl DType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::dtype::DType;
     ///
     /// assert!(DType::I32.is_int());
     /// assert!(DType::U8.is_int());
@@ -222,7 +222,7 @@ impl DType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::dtype::DType;
     ///
     /// assert!(DType::I32.is_signed());
     /// assert!(DType::F32.is_signed());
@@ -247,7 +247,7 @@ impl DType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::dtype::DType;
     ///
     /// assert!(DType::U32.is_unsigned());
     /// assert!(DType::Bool.is_unsigned());
@@ -265,7 +265,7 @@ impl DType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::dtype::DType;
     ///
     /// assert!(DType::Custom("q4").is_custom());
     /// assert!(!DType::F32.is_custom());

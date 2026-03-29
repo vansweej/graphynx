@@ -58,7 +58,7 @@ impl Dim {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::tensor_type::Dim;
+    /// use graph_core::types::dim::Dim;
     ///
     /// assert!(Dim::fixed(3).is_ok());
     /// assert!(Dim::fixed(0).is_err());
@@ -80,7 +80,7 @@ impl Dim {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::tensor_type::Dim;
+    /// use graph_core::types::dim::Dim;
     ///
     /// assert!(Dim::symbolic("batch").is_ok());
     /// assert!(Dim::symbolic("").is_err());

@@ -5,7 +5,7 @@
 //! NumPy-style broadcasting.  The pure data definitions (struct, error,
 //! constructors, accessors, Display) live in the parent [`super`] module.
 
-use crate::core::types::dim::Dim;
+use crate::types::dim::Dim;
 
 use super::{Shape, ShapeError};
 
@@ -18,8 +18,8 @@ impl Shape {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::shape::Shape;
-    /// use graphynx::tensor_type::Dim;
+    /// use graph_core::types::shape::Shape;
+    /// use graph_core::types::dim::Dim;
     ///
     /// let a = Shape::from_fixed(&[3, 256]).unwrap();
     /// let b = Shape::new(vec![Dim::Dynamic, Dim::Fixed(256)]).unwrap();
@@ -61,7 +61,7 @@ impl Shape {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::shape::Shape;
+    /// use graph_core::types::shape::Shape;
     ///
     /// let a = Shape::from_fixed(&[4, 1, 3]).unwrap();
     /// let b = Shape::from_fixed(&[5, 3]).unwrap();

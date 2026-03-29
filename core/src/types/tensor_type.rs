@@ -2,11 +2,11 @@ use std::fmt;
 
 use thiserror::Error;
 
-use crate::backends::DeviceId;
-use crate::core::types::dim::Dim;
-use crate::core::types::dtype::DType;
-use crate::core::types::layout::Layout;
-use crate::core::types::shape::{Shape, ShapeError};
+use crate::types::device_id::DeviceId;
+use crate::types::dim::Dim;
+use crate::types::dtype::DType;
+use crate::types::layout::Layout;
+use crate::types::shape::{Shape, ShapeError};
 
 // ── TensorTypeError ───────────────────────────────────────────────────────────
 
@@ -98,8 +98,10 @@ impl TensorType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::tensor_type::{Dim, Layout, TensorType};
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::tensor_type::{TensorType};
+    /// use graph_core::types::dim::Dim;
+    /// use graph_core::types::layout::Layout;
+    /// use graph_core::types::dtype::DType;
     ///
     /// let t = TensorType::new(
     ///     DType::F32,
@@ -134,8 +136,9 @@ impl TensorType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::tensor_type::{Layout, TensorType};
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::tensor_type::TensorType;
+    /// use graph_core::types::layout::Layout;
+    /// use graph_core::types::dtype::DType;
     ///
     /// let s = TensorType::scalar(DType::F32);
     /// assert!(s.is_scalar());
@@ -162,8 +165,9 @@ impl TensorType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::tensor_type::{Layout, TensorType};
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::tensor_type::TensorType;
+    /// use graph_core::types::layout::Layout;
+    /// use graph_core::types::dtype::DType;
     ///
     /// let v = TensorType::vector(DType::I32, 1024).unwrap();
     /// assert_eq!(v.rank(), 1);
@@ -194,8 +198,9 @@ impl TensorType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::tensor_type::{Layout, TensorType};
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::tensor_type::TensorType;
+    /// use graph_core::types::layout::Layout;
+    /// use graph_core::types::dtype::DType;
     ///
     /// let m = TensorType::matrix(DType::F64, 3, 4).unwrap();
     /// assert_eq!(m.rank(), 2);
@@ -219,9 +224,11 @@ impl TensorType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::tensor_type::{Dim, Layout, TensorType};
-    /// use graphynx::backend::DeviceId;
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::tensor_type::{TensorType};
+    /// use graph_core::types::dim::Dim;
+    /// use graph_core::types::layout::Layout;
+    /// use graph_core::types::device_id::DeviceId;
+    /// use graph_core::types::dtype::DType;
     ///
     /// let t = TensorType::builder(DType::F32)
     ///     .shape(vec![
@@ -295,8 +302,10 @@ impl TensorType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::tensor_type::{Dim, Layout, TensorType};
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::tensor_type::TensorType;
+    /// use graph_core::types::dim::Dim;
+    /// use graph_core::types::layout::Layout;
+    /// use graph_core::types::dtype::DType;
     ///
     /// let m = TensorType::matrix(DType::F32, 4, 8).unwrap();
     /// assert_eq!(m.num_elements(), Some(32));
@@ -321,8 +330,8 @@ impl TensorType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::tensor_type::TensorType;
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::tensor_type::TensorType;
+    /// use graph_core::types::dtype::DType;
     ///
     /// let v = TensorType::vector(DType::F32, 1024).unwrap();
     /// assert_eq!(v.size_bytes(), Some(4096));
@@ -351,8 +360,10 @@ impl TensorType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::tensor_type::{Dim, Layout, TensorType};
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::tensor_type::TensorType;
+    /// use graph_core::types::dim::Dim;
+    /// use graph_core::types::layout::Layout;
+    /// use graph_core::types::dtype::DType;
     ///
     /// let t = TensorType::new(
     ///     DType::F32,
@@ -394,8 +405,10 @@ impl TensorType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::tensor_type::{Dim, Layout, TensorType};
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::tensor_type::TensorType;
+    /// use graph_core::types::dim::Dim;
+    /// use graph_core::types::layout::Layout;
+    /// use graph_core::types::dtype::DType;
     ///
     /// let t = TensorType::new(
     ///     DType::F32,
@@ -435,8 +448,10 @@ impl TensorType {
     /// # Examples
     ///
     /// ```
-    /// use graphynx::tensor_type::{Dim, Layout, TensorType};
-    /// use graphynx::dtype::DType;
+    /// use graph_core::types::tensor_type::TensorType;
+    /// use graph_core::types::dim::Dim;
+    /// use graph_core::types::layout::Layout;
+    /// use graph_core::types::dtype::DType;
     ///
     /// let producer = TensorType::new(
     ///     DType::F32,
@@ -635,8 +650,8 @@ impl TensorTypeBuilder {
 mod tests {
     use std::collections::HashMap;
 
-    use crate::backends::DeviceId;
-    use crate::core::types::dtype::DType;
+    use crate::types::device_id::DeviceId;
+    use crate::types::dtype::DType;
 
     use super::*;
 
@@ -651,7 +666,7 @@ mod tests {
         fn fixed_zero_is_error() {
             assert_eq!(
                 Dim::fixed(0),
-                Err(crate::core::types::dim::DimError::ZeroDimension)
+                Err(crate::types::dim::DimError::ZeroDimension)
             );
         }
 
@@ -677,7 +692,7 @@ mod tests {
         fn symbolic_empty_is_error() {
             assert_eq!(
                 Dim::symbolic(""),
-                Err(crate::core::types::dim::DimError::EmptySymbol)
+                Err(crate::types::dim::DimError::EmptySymbol)
             );
         }
 

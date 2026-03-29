@@ -62,6 +62,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "backends"
+version = "0.1.0"
+dependencies = [
+ "graph-core",
+ "log",
+ "thiserror",
+]
+
+[[package]]
+name = "backends-cuda"
+version = "0.1.0"
+dependencies = [
+ "backends",
+ "bytemuck",
+ "cudarc",
+ "log",
+ "thiserror",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.25.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -117,13 +137,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "graphynx"
+name = "graph-core"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "cudarc",
- "env_logger",
- "log",
  "thiserror",
 ]
 
@@ -236,6 +253,18 @@ name = "regex-syntax"
 version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc897dd8d9e8bd1ed8cdad82b5966c3e0ecae09fb1907d58efaa013543185d0a"
+
+[[package]]
+name = "runtime"
+version = "0.1.0"
+dependencies = [
+ "backends",
+ "backends-cuda",
+ "bytemuck",
+ "env_logger",
+ "graph-core",
+ "log",
+]
 
 [[package]]
 name = "serde_core"
