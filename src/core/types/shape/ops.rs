@@ -5,7 +5,7 @@
 //! NumPy-style broadcasting.  The pure data definitions (struct, error,
 //! constructors, accessors, Display) live in the parent [`super`] module.
 
-use crate::tensor_type::Dim;
+use crate::core::types::dim::Dim;
 
 use super::{Shape, ShapeError};
 
