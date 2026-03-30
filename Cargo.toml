@@ -5,6 +5,7 @@ members = [
     "backends",
     "backends-cuda",
     "runtime",
+    "playground",
 ]
 
 [workspace.package]
