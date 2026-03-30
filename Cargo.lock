@@ -193,6 +193,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "384b8ab6d37215f3c5301a95a4accb5d64aa607f1fcb26a11b5303878451b4fe"
 
 [[package]]
+name = "playground"
+version = "0.1.0"
+dependencies = [
+ "backends",
+ "backends-cuda",
+ "bytemuck",
+ "env_logger",
+ "graph-core",
+ "log",
+ "runtime",
+]
+
+[[package]]
 name = "portable-atomic"
 version = "1.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

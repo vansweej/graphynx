@@ -1,0 +1,23 @@
+[package]
+name        = "playground"
+description = "Scratch binaries for experimenting with graphynx crates"
+version.workspace    = true
+edition.workspace    = true
+license.workspace    = true
+repository.workspace = true
+
+[[bin]]
+name = "scratch"
+path = "src/scratch.rs"
+
+[dependencies]
+graph-core    = { workspace = true }
+backends      = { workspace = true }
+backends-cuda = { workspace = true }
+runtime       = { workspace = true }
+bytemuck      = { workspace = true }
+log           = { workspace = true }
+env_logger    = { workspace = true }
+
+[lints]
+workspace = true

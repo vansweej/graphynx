@@ -1,0 +1,8 @@
+# cargo-tarpaulin configuration
+# https://github.com/xd009642/tarpaulin
+
+[default]
+# Run across the entire workspace, but exclude the playground crate
+# (scratch code, not library logic).
+workspace = true
+exclude = ["playground"]
