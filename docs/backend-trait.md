@@ -1,6 +1,6 @@
 # Backend Trait System
 
-The backend trait system defines the interface between the graph execution engine and the compute hardware. All types live in `src/backend.rs`.
+The backend trait system defines the interface between the graph execution engine and the compute hardware. All types live in `backends/src/lib.rs`.
 
 ## Trait Hierarchy
 
@@ -15,7 +15,7 @@ classDiagram
         +upload(host, dst) Result~()~
         +download(src, host) Result~()~
         +dispatch_compute(desc, inputs, outputs) Result~()~
-        +dispatch_op(op_name, inputs, outputs) Result~()~
+        +dispatch_op(op, inputs, outputs) Result~()~
         +dispatch_ml_model(model_name, inputs, outputs) Result~()~
     }
 
@@ -32,8 +32,20 @@ classDiagram
         +as_any() &dyn Any
     }
 
+    class CpuBackend {
+        +new(device_id) CpuBackend
+        +dispatch_op(op, inputs, outputs) Result~()~
+    }
+
+    class CudaBackend {
+        +new(device_index, ptx, module) Result~CudaBackend~
+        +dispatch_compute(desc, inputs, outputs) Result~()~
+    }
+
     Backend --> DeviceBuffer : allocates / manages
-    Backend --> KernelDescriptor : receives in dispatch
+    Backend --> KernelDescriptor : receives in dispatch_compute
+    CpuBackend ..|> Backend : implements
+    CudaBackend ..|> Backend : implements
 ```
 
 ## Backend
@@ -67,17 +79,17 @@ Backends override only the dispatch methods they support.
 
 ```mermaid
 graph LR
-    subgraph "Explicit Memory"
+    subgraph "Explicit Memory (CudaBackend)"
         E1["Engine calls alloc()"]
         E2["Engine calls upload()"]
-        E3["Engine calls dispatch()"]
+        E3["Engine calls dispatch_compute()"]
         E4["Engine calls download()"]
         E1 --> E2 --> E3 --> E4
     end
 
-    subgraph "Managed Memory"
+    subgraph "Managed Memory (CpuBackend)"
         M1["Engine passes host bytes"]
-        M2["Backend runs internally"]
+        M2["Backend runs internally\n(rustfft, etc.)"]
         M3["Engine reads host bytes"]
         M1 --> M2 --> M3
     end
@@ -85,8 +97,55 @@ graph LR
 
 The `MemoryModel` enum determines how the executor interacts with a backend:
 
-- **`Explicit`** -- The engine manages device memory through `alloc`, `upload`, and `download`. Used by hardware backends (CUDA, OpenCL, CPU).
-- **`Managed`** -- The backend handles its own memory. The engine passes raw host bytes in and out. Used by ML runtime backends (ONNX Runtime, libtorch).
+- **`Explicit`** -- The engine manages device memory through `alloc`, `upload`, and `download`. Used by `CudaBackend` and other hardware backends.
+- **`Managed`** -- The backend handles its own memory. The engine passes raw host bytes in and out. Used by `CpuBackend` and ML runtime backends (ONNX Runtime, libtorch).
+
+## Executor Dispatch Decision
+
+```mermaid
+flowchart TD
+    A["Executor::run() — next node"] --> B{MemoryModel?}
+    B -->|Managed| C["Pass host byte slices\ndirectly to dispatch_op()"]
+    B -->|Explicit| D["alloc() output buffers\nupload() inputs\ndispatch_compute() or dispatch_op()\ndownload() outputs"]
+    C --> E["Write results to BufferArena"]
+    D --> E
+```
+
+## CpuBackend
+
+`CpuBackend` is the managed-memory backend for signal processing ops. It lives
+in the `backends-cpu` crate and implements `Op::Window`, `Op::Fft`, and
+`Op::BandExtract`. All other ops return `BackendError::UnsupportedOp`.
+
+```mermaid
+graph TD
+    dispatch["CpuBackend::dispatch_op(op, inputs, outputs)"]
+    dispatch --> W["Op::Window\nsignal::window\nHann / Hamming / Blackman"]
+    dispatch --> F["Op::Fft\nsignal::fft\nrustfft planner (cached)"]
+    dispatch --> B["Op::BandExtract\nsignal::band\nbin summing + EMA"]
+    dispatch --> U["_ => UnsupportedOp"]
+```
+
+### CpuBackend capabilities
+
+```rust
+BackendCaps {
+    memory: MemoryModel::Managed,
+    supported_kinds: vec![NodeKindTag::Op],
+}
+```
+
+### Example — building a signal pipeline with CpuBackend
+
+```rust
+use backends::Backend;
+use backends_cpu::CpuBackend;
+use backends::DeviceId;
+
+let cpu_id = DeviceId::new("cpu:0");
+let backend: Box<dyn Backend> = Box::new(CpuBackend::new(cpu_id));
+// Pass to Executor::new(graph, vec![backend])
+```
 
 ## DeviceBuffer
 
@@ -160,7 +219,7 @@ Derives: `Clone`, `Debug`, `Eq`, `PartialEq`, `Hash`. Implements `Display`.
 #### Examples
 
 ```rust
-use graphynx::backend::DeviceId;
+use backends::DeviceId;
 
 // Safe constructor
 let id = DeviceId::try_new("cuda:0").unwrap();

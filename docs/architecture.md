@@ -1,162 +1,162 @@
 # Architecture Overview
 
-Graphynx is a graph-based runtime for heterogeneous CPU-GPU computation. This document describes the current code structure, the layered architecture, and how the major components interact.
+Graphynx is a graph-based runtime for heterogeneous CPU-GPU computation. This
+document describes the current workspace structure, the layered architecture,
+and how the major components interact.
 
-## Layered Design
-
-The system is organized into three layers. Each layer depends only on the layers below it.
-
-```mermaid
-graph TB
-    subgraph "Binary Layer"
-        main["main.rs<br/>Demo entry point"]
-    end
-
-    subgraph "Library Layer"
-        lib["lib.rs<br/>run_kernel&lt;T&gt;"]
-        dtype["dtype.rs<br/>DType enum"]
-        shape["shape/<br/>Shape · broadcasting · strides"]
-        tensor_type["tensor_type.rs<br/>Dim · Layout · TensorType"]
-        ml_op["ml_op.rs<br/>Op catalog"]
-    end
-
-    subgraph "Backend Layer"
-        backend["backend.rs<br/>Traits & types"]
-        cuda["cuda_backend.rs<br/>CUDA implementation"]
-    end
-
-    main --> lib
-    main --> cuda
-    lib --> backend
-    lib --> tensor_type
-    lib --> ml_op
-    cuda --> backend
-    lib -.-> dtype
-    tensor_type --> dtype
-    tensor_type --> backend
-    tensor_type --> shape
-    ml_op --> shape
-    shape --> tensor_type
-```
-
-### Core Abstractions (backend.rs)
-
-The `backend` module defines the foundational traits and types that all backends must implement. It has zero dependencies on any GPU SDK.
-
-### Backend Implementations (cuda_backend.rs)
-
-Concrete backend implementations live in their own modules and depend on the core abstractions. Currently only a CUDA backend exists.
-
-### Library API (lib.rs)
-
-The top-level `run_kernel<T>` function provides a convenient typed wrapper over the byte-oriented backend interface.
-
-### Type System (dtype.rs, shape/, tensor_type.rs)
-
-The type system describes tensor data flowing through the computation graph:
-
-- **`dtype.rs`** — `DType` enum: scalar element types (`F32`, `I32`, `U8`, …). `DTypeError` for safe `DType::custom()` construction. Zero dependencies.
-- **`shape/`** — `Shape` struct: validated tensor shape with broadcasting, reshape validation, stride computation, and compatibility checks. `ShapeError` for construction and transformation errors. Depends only on `tensor_type::Dim`. See [shape.md](shape.md) for full documentation.
-- **`tensor_type.rs`** — `Dim`, `Layout`, `TensorType`, `TensorTypeBuilder`: full tensor metadata including shape (via `Shape`), layout, optional device placement, and dimension names. Depends on `dtype`, `backend::DeviceId`, and `shape::Shape`. See [tensor-type.md](tensor-type.md) for full documentation.
-- **`ml_op.rs`** — `Op` enum: curated catalog of primitive ML operations (`Conv2d`, `MatMul`, `Relu`, …) and their parameter structs. `OpError` for safe construction. Depends on `shape::Shape`. See [op-catalog.md](op-catalog.md) for full documentation.
-
-## Module Dependency Graph
+## Workspace Crate Dependency Graph
 
 ```mermaid
 graph LR
-    main["main.rs"] --> lib["lib.rs"]
-    main --> cuda_backend["cuda_backend.rs"]
-    lib --> backend["backend.rs"]
-    lib --> tensor_type["tensor_type.rs"]
-    lib --> ml_op["ml_op.rs"]
-    tensor_type --> backend
-    tensor_type --> dtype["dtype.rs"]
-    tensor_type --> shape["shape/"]
-    ml_op --> shape
-    shape --> tensor_type
-    cuda_backend --> backend
-    lib --> bytemuck
-    cuda_backend --> cudarc
-    backend --> thiserror
-    tensor_type --> thiserror
-    shape --> thiserror
-    ml_op --> thiserror
-    dtype --> thiserror
+    GC["graph-core\nTypes · Ops · Graph IR"]
+    B["backends\nBackend trait · BackendError · DeviceId"]
+    BC["backends-cpu\nCpuBackend\nSignal ops"]
+    BX["backends-cuda\nCudaBackend\nPTX kernels"]
+    RT["runtime\nExecutor · demo binary"]
+
+    GC --> B
+    B --> BC
+    B --> BX
+    GC --> RT
+    B --> RT
+    BC --> RT
+    BX --> RT
 ```
 
-## Data Flow
+**Key invariant:** `graph-core` and `backends` have zero dependencies on any
+GPU SDK. They depend only on `std` and lightweight utility crates.
 
-When `run_kernel<T>` is called, data flows through these stages:
+## Layered Design
+
+The system is organised into three layers. Each layer depends only on the
+layers below it.
+
+```mermaid
+graph TB
+    subgraph "Execution Layer"
+        RT2["runtime\nExecutor · Scheduler\nBuffer Arena · Handles · State"]
+    end
+
+    subgraph "Backend Layer"
+        BC2["backends-cpu\nCpuBackend\n(Managed memory)\nWindow · FFT · BandExtract"]
+        BX2["backends-cuda\nCudaBackend\n(Explicit memory)\nPTX kernel dispatch"]
+    end
+
+    subgraph "Core Layer"
+        GC2["graph-core\nGraph IR · GraphBuilder\nOp catalog · TensorType\nShape · DType"]
+        B2["backends\nBackend trait\nBackendError · DeviceId\nBackendCaps"]
+    end
+
+    RT2 --> BC2
+    RT2 --> BX2
+    RT2 --> GC2
+    RT2 --> B2
+    BC2 --> B2
+    BX2 --> B2
+    B2 --> GC2
+```
+
+## Executor Tick Lifecycle
+
+On each `Executor::run()` call the executor dispatches nodes in topological
+order through the registered backends.
 
 ```mermaid
 sequenceDiagram
     participant Caller
-    participant run_kernel
+    participant Executor
+    participant Arena as BufferArena
     participant Backend
-    participant Device
 
-    Caller->>run_kernel: &[T] input
-    run_kernel->>run_kernel: bytemuck::cast_slice (T -> u8)
-    run_kernel->>Backend: alloc(input_size)
-    Backend->>Device: allocate input buffer
-    Device-->>Backend: Box<dyn DeviceBuffer>
-    Backend-->>run_kernel: input_buf
+    Caller->>Executor: write inputs via InputHandle
+    Caller->>Executor: run()
 
-    run_kernel->>Backend: upload(bytes, input_buf)
-    Backend->>Device: host-to-device copy
+    loop for each node in topological order
+        Executor->>Arena: read input buffers for node
+        alt stateful node (BandExtract with smoothing > 0)
+            Executor->>Executor: prepend EMA state to inputs
+        end
+        Executor->>Backend: dispatch_op(op, inputs, outputs)
+        Backend-->>Executor: output bytes
+        alt stateful node
+            Executor->>Executor: save trailing output as new state
+        end
+        Executor->>Arena: write output buffers
+    end
 
-    run_kernel->>Backend: alloc(output_size)
-    Backend->>Device: allocate output buffer
-    Device-->>Backend: Box<dyn DeviceBuffer>
-    Backend-->>run_kernel: output_buf
-
-    run_kernel->>Backend: dispatch_compute(desc, inputs, outputs)
-    Backend->>Device: launch kernel
-
-    run_kernel->>Backend: download(output_buf, host)
-    Backend->>Device: device-to-host copy
-
-    run_kernel->>run_kernel: bytemuck::cast_slice (u8 -> T)
-    run_kernel-->>Caller: Vec<T> output
+    Caller->>Executor: read outputs via OutputHandle
 ```
 
-## Source File Map
+## Memory Models
 
-| File | Lines | Purpose |
-|---|---|---|
-| `src/lib.rs` | ~324 | Crate root. Declares modules, exposes `run_kernel<T>`. |
-| `src/backend.rs` | ~737 | Core traits: `Backend`, `DeviceBuffer`, `KernelDescriptor`. Error types (`BackendError`, `DeviceIdError`), `DeviceId`, `BackendCaps`. |
-| `src/cuda_backend.rs` | ~373 | CUDA implementation: `CudaBackend`, `CudaBuffer`, `CudaKernelDesc`. |
-| `src/dtype.rs` | ~710 | `DType` enum with size, alignment, naming, category helpers, and `DTypeError` for safe `custom()` construction. |
-| `src/tensor_type.rs` | ~1850 | Tensor type system: `Dim`, `Layout`, `TensorType`, `TensorTypeBuilder`, `TensorTypeError`. |
-| `src/ml_op.rs` | ~2131 | ML op catalog: `Op` enum, all per-op parameter structs, `OpError`, and safe constructors. |
-| `src/shape/mod.rs` | ~862 | `Shape` struct: validated tensor shape, constructors, accessors, reshape validation, stride computation. `ShapeError`. |
-| `src/shape/ops.rs` | ~380 | Broadcasting (`broadcast_with`) and compatibility (`is_compatible_with`) logic for `Shape`. |
-| `src/main.rs` | ~43 | Binary demo: loads PTX, runs `hello_kernel` on GPU. |
-| `build.rs` | ~27 | Build script: emits CUDA linker search paths from `CUDA_PATH`/`NVRTC_PATH`. |
-| `kernel.cu` | ~17 | CUDA C kernel source (doubles each array element). |
-| `compile-kernel.sh` | ~17 | Compiles `kernel.cu` to `kernel.ptx` via `nvcc`. |
+```mermaid
+graph LR
+    subgraph "Managed Memory (CpuBackend)"
+        M1["Engine passes\nhost byte slices"]
+        M2["Backend runs\ninternally (rustfft, etc.)"]
+        M3["Engine reads\nhost byte slices"]
+        M1 --> M2 --> M3
+    end
+
+    subgraph "Explicit Memory (CudaBackend — future)"
+        E1["Engine calls alloc()"]
+        E2["Engine calls upload()"]
+        E3["Engine calls dispatch()"]
+        E4["Engine calls download()"]
+        E1 --> E2 --> E3 --> E4
+    end
+```
+
+The `MemoryModel` enum in `BackendCaps` tells the executor which path to take:
+
+- **`Managed`** — backend handles its own memory; engine passes raw host bytes.
+  Used by `CpuBackend` and ML runtime backends (ONNX Runtime, libtorch).
+- **`Explicit`** — engine manages device memory through `alloc`/`upload`/`download`.
+  Used by `CudaBackend`, OpenCL, etc.
+
+## Data Flow — Signal Processing Example
+
+```mermaid
+flowchart LR
+    A["Audio frame\nf32 × N\n(InputHandle)"]
+    B["Op::Window\nHann/Hamming/Blackman\nf32 × N"]
+    C["Op::Fft\nForward FFT\nf32 × N/2+1"]
+    D["Op::BandExtract\nBin summing + EMA\nf32 × B"]
+    E["Band energies\nf32 × B\n(OutputHandle)"]
+
+    A --> B --> C --> D --> E
+```
 
 ## Key Design Principles
 
-1. **Zero backend dependencies in the core layer** — `backend.rs`, `dtype.rs`, `shape/`, and `tensor_type.rs` compile without any GPU SDK.
-2. **All unsafe confined to backend implementations** — the core library is 100% safe Rust.
-3. **Invalid states are unrepresentable** — `TensorType` uses private fields and validated constructors; there is no way to construct a `TensorType` with a zero dimension, mismatched dim names, or a wrong-rank image layout. `Shape` enforces no `Fixed(0)` or `Symbolic("")`. `DeviceId`, `DType::custom()`, and all `Op` param structs use safe constructors with dedicated error types.
-4. **Byte-oriented backend interface** — the `Backend` trait operates on `&[u8]` and `Box<dyn DeviceBuffer>`. Type erasure happens at the `run_kernel` boundary via `bytemuck`.
-5. **Trait-based extensibility** — `KernelDescriptor` is a trait (not an enum), so new kernel descriptor types can be added without modifying core code.
-6. **Capability-based dispatch** — `BackendCaps` declares what a backend supports (`Compute`, `Op`, `MlModel`) and its memory model (`Explicit` or `Managed`).
+1. **Zero backend dependencies in the core layer** — `graph-core` and `backends`
+   compile without any GPU SDK.
+2. **All unsafe confined to backend implementations** — the core library is 100%
+   safe Rust.
+3. **Invalid states are unrepresentable** — `TensorType`, `Shape`, `DeviceId`,
+   `DType::custom()`, and all `Op` param structs use safe constructors with
+   dedicated error types.
+4. **Byte-oriented backend interface** — the `Backend` trait operates on `&[u8]`
+   slices. Type erasure happens at the executor boundary via `bytemuck`.
+5. **Trait-based extensibility** — `KernelDescriptor` is a trait (not an enum),
+   so new kernel descriptor types can be added without modifying core code.
+6. **Capability-based dispatch** — `BackendCaps` declares what a backend supports
+   (`Compute`, `Op`, `MlModel`) and its memory model (`Explicit` or `Managed`).
+7. **Stateful ops via state threading** — the executor persists EMA state across
+   ticks by prepending/appending state buffers; the op itself is pure.
 
 ## Tensor Type System
 
-`TensorType` is the core metadata type describing tensors on graph edges. It combines:
+`TensorType` is the core metadata type describing tensors on graph edges:
 
 - **`DType`** — scalar element type (e.g. `F32`, `I32`)
-- **[`Shape`](shape.md)** — validated tensor shape containing `Fixed(n)`, `Dynamic`, or `Symbolic("batch")` dimensions, with broadcasting and reshape validation
+- **[`Shape`](shape.md)** — validated tensor shape with `Fixed(n)`, `Dynamic`,
+  or `Symbolic("batch")` dimensions
 - **`Layout`** — memory layout (`RowMajor`, `ColMajor`, `NCHW`, `NHWC`, `Any`)
 - **`Option<Vec<String>>`** — optional human-readable dimension names
 - **`Option<DeviceId>`** — optional device placement
 
-`TensorType::is_compatible_with` implements the graph-edge compatibility rules:
+`TensorType::is_compatible_with` implements graph-edge compatibility rules:
 
 ```mermaid
 flowchart LR
@@ -172,12 +172,38 @@ flowchart LR
 
 See [tensor-type.md](tensor-type.md) for the full API reference.
 
-## Future Direction
+## Source File Map
 
-See [ARCHITECTURE.md](../ARCHITECTURE.md) in the repository root for the full long-term plan, including:
+| Crate | Key files | Purpose |
+|---|---|---|
+| `graph-core` | `core/src/types/` | `DType`, `Dim`, `Layout`, `TensorType`, `Shape` |
+| `graph-core` | `core/src/ops/mod.rs` | `Op` enum, `OpError`, re-exports |
+| `graph-core` | `core/src/ops/ml.rs` | ML param structs (`Conv2dParams`, `LinearParams`, …) |
+| `graph-core` | `core/src/ops/signal.rs` | Signal param structs (`WindowParams`, `FftParams`, `BandExtractParams`) |
+| `graph-core` | `core/src/graph/` | `Graph`, `GraphBuilder`, `Node`, `Edge`, validator |
+| `backends` | `backends/src/lib.rs` | `Backend` trait, `BackendError`, `DeviceId`, `BackendCaps` |
+| `backends-cpu` | `backends-cpu/src/lib.rs` | `CpuBackend` — managed-memory signal ops |
+| `backends-cpu` | `backends-cpu/src/signal/` | `window.rs`, `fft.rs`, `band.rs` |
+| `backends-cuda` | `backends-cuda/src/lib.rs` | `CudaBackend`, `CudaBuffer`, `CudaKernelDesc` |
+| `backends-cuda` | `backends-cuda/kernel.cu` | CUDA C kernel source (doubles array elements) |
+| `backends-cuda` | `backends-cuda/build.rs` | Emits CUDA linker search paths |
+| `runtime` | `runtime/src/executor/mod.rs` | `Executor` — synchronous graph runner |
+| `runtime` | `runtime/src/executor/scheduler.rs` | Topological sort |
+| `runtime` | `runtime/src/executor/buffer.rs` | `BufferArena` — inter-node byte buffers |
+| `runtime` | `runtime/src/executor/handle.rs` | `InputHandle`, `OutputHandle` |
+| `runtime` | `runtime/src/executor/state.rs` | `ExecutionState` — EMA state persistence |
+| `runtime` | `runtime/src/main.rs` | Demo binary — CUDA kernel demo |
 
-- Graph IR with builder pattern (nodes, edges, `GraphBuilder`)
-- ML operation catalog (`Op` enum) ✓ **implemented** — see [op-catalog.md](op-catalog.md)
-- Execution layer (scheduler, buffer manager, executor)
-- Multiple backend implementations (CPU, OpenCL, ONNX Runtime, etc.)
-- Feature-gated backend compilation
+## Further Reading
+
+- [ARCHITECTURE.md](../ARCHITECTURE.md) — full long-term design plan
+- [docs/getting-started.md](getting-started.md) — build, test, and first steps
+- [docs/executor.md](executor.md) — executor developer guide
+- [docs/graph-ir.md](graph-ir.md) — Graph IR and builder API
+- [docs/signal-ops.md](signal-ops.md) — signal processing ops guide
+- [docs/op-catalog.md](op-catalog.md) — `Op` enum and parameter structs
+- [docs/backend-trait.md](backend-trait.md) — `Backend` trait system
+- [docs/tensor-type.md](tensor-type.md) — `Dim`, `Layout`, `TensorType`
+- [docs/shape.md](shape.md) — `Shape`, broadcasting, strides
+- [docs/dtype.md](dtype.md) — `DType` scalar element types
+- [docs/cuda-backend.md](cuda-backend.md) — CUDA backend details

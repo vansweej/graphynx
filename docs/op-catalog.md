@@ -20,7 +20,7 @@ the same pattern.
 ```mermaid
 graph LR
     Op --> ML["ML domain<br/>(ops/ml.rs)<br/>MatMul · Linear · Conv2d<br/>Relu · Sigmoid · Tanh · Gelu · Softmax<br/>BatchNorm · LayerNorm<br/>MaxPool2d · AvgPool2d<br/>Reshape · Transpose · Concat · Flatten<br/>Dropout · Add · Mul"]
-    Op --> Signal["Signal domain<br/>(ops/signal.rs)<br/>— Phase 3 —<br/>Fft · Window · BandExtract"]
+    Op --> Signal["Signal domain<br/>(ops/signal.rs)<br/>Window · Fft · BandExtract"]
     Op --> EscapeHatch["Escape hatch<br/>Custom { name, params }"]
 ```
 
@@ -42,6 +42,12 @@ graph TD
     OpError --> InvalidNormalizedShape["InvalidNormalizedShape<br/>empty or contains zeros"]
     OpError --> InvalidPermutation["InvalidPermutation { perm, expected_len }<br/>not a permutation of 0..rank"]
     OpError --> EmptyCustomName["EmptyCustomName<br/>Custom op name was empty"]
+    OpError --> ZeroWindowSize["ZeroWindowSize<br/>Window size was 0"]
+    OpError --> ZeroFftSize["ZeroFftSize<br/>FFT size was 0"]
+    OpError --> EmptyBands["EmptyBands<br/>BandExtract bands list was empty"]
+    OpError --> InvalidSampleRate["InvalidSampleRate(f32)<br/>sample_rate_hz ≤ 0"]
+    OpError --> InvalidSmoothing["InvalidSmoothing(f32)<br/>smoothing not in [0.0, 1.0)"]
+    OpError --> InvalidBandRange["InvalidBandRange { low, high }<br/>low_hz ≥ high_hz or low_hz < 0"]
 ```
 
 Derives: `Debug`, `Error`, `Clone`, `PartialEq`.
@@ -109,10 +115,67 @@ Derives: `Debug`, `Error`, `Clone`, `PartialEq`.
 | `Add` | — | Element-wise addition |
 | `Mul` | — | Element-wise multiplication |
 
-### Signal domain (`ops/signal.rs`) — Phase 3
+### Signal domain (`ops/signal.rs`)
 
-Signal processing variants (`Fft`, `Window`, `BandExtract`) will be added in
-Phase 3. See `docs/voice-metaballs-plan.md` for the planned parameter structs.
+Three signal-processing variants form a standard short-time spectral analysis
+pipeline. See [signal-ops.md](signal-ops.md) for the full algorithm and
+graph-wiring guide.
+
+```mermaid
+flowchart LR
+    A["Audio frame\nf32 × N"] -->|"Op::Window"| B["Windowed frame\nf32 × N"]
+    B -->|"Op::Fft"| C["Spectrum\nf32 × N/2+1"]
+    C -->|"Op::BandExtract"| D["Band energies\nf32 × B"]
+```
+
+| Variant | Params struct | Description |
+|---|---|---|
+| `Window(WindowParams)` | `kind`, `size` | Apply a windowing function (Hann/Hamming/Blackman) to reduce spectral leakage |
+| `Fft(FftParams)` | `size`, `direction`, `output` | Forward or inverse FFT; output can be complex, magnitude, or power |
+| `BandExtract(BandExtractParams)` | `bands`, `sample_rate_hz`, `smoothing` | Sum spectrum bins per frequency band; optional EMA smoothing (stateful) |
+
+#### `WindowKind`
+
+| Variant | Formula | Side-lobe attenuation |
+|---|---|---|
+| `Hann` | `0.5 × (1 − cos(2πn / (N−1)))` | −31.5 dB |
+| `Hamming` | `0.54 − 0.46 × cos(2πn / (N−1))` | −41.0 dB |
+| `Blackman` | `0.42 − 0.5 × cos(…) + 0.08 × cos(…)` | −58.1 dB |
+
+#### `FftDirection`
+
+| Variant | Description |
+|---|---|
+| `Forward` | Time domain → frequency domain |
+| `Inverse` | Frequency domain → time domain |
+
+#### `FftOutput`
+
+| Variant | Output shape | Content |
+|---|---|---|
+| `Complex` | `[size]` f32 interleaved | `(re₀, im₀, re₁, im₁, …)` |
+| `MagnitudeOneSided` | `[size/2 + 1]` f32 | `√(re² + im²)` |
+| `PowerOneSided` | `[size/2 + 1]` f32 | `re² + im²` |
+
+#### Stateful BandExtract
+
+`BandExtract` with `smoothing > 0.0` is the only **stateful** op in the
+catalog. The executor threads an EMA state vector across ticks:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Tick1 : zeros state
+    Tick1 --> Tick2 : ema_state_1
+    Tick2 --> Tick3 : ema_state_2
+    Tick3 --> TickN : ema_state_3
+    note right of Tick1
+        inputs  = [state_t-1, spectrum_t]
+        outputs = [energies_t, state_t]
+        y[t] = α×x[t] + (1−α)×y[t−1]
+    end note
+```
+
+When `smoothing == 0.0` the op is stateless (no state prepended/appended).
 
 ### Escape hatch
 
@@ -136,6 +199,7 @@ but does not validate.
 | `is_parameterless()` | `bool` | `true` for `Relu`, `Sigmoid`, `Tanh`, `Gelu`, `Add`, `Mul`. |
 | `is_custom()` | `bool` | `true` for `Custom { .. }`. |
 | `is_spatial_2d()` | `bool` | `true` for `Conv2d`, `MaxPool2d`, `AvgPool2d` — operations that require a 4-D input. |
+| `state_shape()` | `Option<TensorType>` | `Some(shape)` for stateful ops (e.g. `BandExtract` with `smoothing > 0`); `None` for stateless ops. |
 
 ## `Display`
 
@@ -301,7 +365,63 @@ pub struct DropoutParams {
 **`DropoutParams::new(p)`** — Returns `Err(OpError::InvalidDropoutP)` if `p`
 is outside `[0.0, 1.0)`.
 
-## Usage Examples
+### Signal domain param structs
+
+#### `WindowParams`
+
+```rust
+pub struct WindowParams {
+    pub kind: WindowKind,   // Hann | Hamming | Blackman
+    pub size: usize,        // frame length in samples, must be > 0
+}
+```
+
+**`WindowParams::new(kind, size)`** — Returns `Err(OpError::ZeroWindowSize)` if `size == 0`.
+
+#### `FftParams`
+
+```rust
+pub struct FftParams {
+    pub size:      usize,         // input frame length, must be > 0
+    pub direction: FftDirection,  // Forward | Inverse
+    pub output:    FftOutput,     // Complex | MagnitudeOneSided | PowerOneSided
+}
+```
+
+**`FftParams::new(size, direction, output)`** — Returns `Err(OpError::ZeroFftSize)` if `size == 0`.
+
+Helper: **`FftParams::one_sided_len()`** returns `size / 2 + 1` — the output length for `Magnitude` and `Power` modes.
+
+#### `BandDef`
+
+```rust
+pub struct BandDef {
+    pub low_hz:  f32,    // lower bound in Hz, must be ≥ 0 and < high_hz
+    pub high_hz: f32,    // upper bound in Hz
+    pub label:   String, // human-readable name (e.g. "low", "mid", "high")
+}
+```
+
+**`BandDef::new(low_hz, high_hz, label)`** — Returns `Err(OpError::InvalidBandRange)` if `low_hz >= high_hz` or `low_hz < 0.0`.
+
+#### `BandExtractParams`
+
+```rust
+pub struct BandExtractParams {
+    pub bands:          Vec<BandDef>,  // frequency bands, must not be empty
+    pub sample_rate_hz: f32,           // audio sample rate in Hz, must be > 0
+    pub smoothing:      f32,           // EMA α ∈ [0.0, 1.0); 0.0 = stateless
+}
+```
+
+**`BandExtractParams::new(bands, sample_rate_hz, smoothing)`** — Returns:
+- `Err(OpError::EmptyBands)` if `bands` is empty.
+- `Err(OpError::InvalidSampleRate)` if `sample_rate_hz <= 0.0`.
+- `Err(OpError::InvalidSmoothing)` if `smoothing` not in `[0.0, 1.0)`.
+
+Helper: **`BandExtractParams::is_stateful()`** returns `true` when `smoothing > 0.0`.
+
+
 
 ### Using safe constructors (recommended)
 
@@ -340,6 +460,39 @@ let drop = Op::Dropout(DropoutParams::new(0.5).unwrap());
 let relu = Op::Relu;
 assert!(relu.is_parameterless());
 println!("{}", relu); // "Relu"
+```
+
+### Signal processing ops
+
+```rust
+use graph_core::ops::signal::{
+    WindowKind, WindowParams, FftDirection, FftOutput, FftParams,
+    BandDef, BandExtractParams,
+};
+use graph_core::ops::Op;
+
+// Window — Hann window, 1024 samples
+let win = Op::Window(WindowParams::new(WindowKind::Hann, 1024).unwrap());
+assert_eq!(win.name(), "Window");
+
+// FFT — forward, one-sided magnitude spectrum
+let fft_params = FftParams::new(1024, FftDirection::Forward, FftOutput::MagnitudeOneSided).unwrap();
+assert_eq!(fft_params.one_sided_len(), 513);
+let fft = Op::Fft(fft_params);
+
+// BandExtract — 3 bands, 44.1 kHz, EMA smoothing α = 0.6 (stateful)
+let bands = vec![
+    BandDef::new(20.0,   250.0,  "low").unwrap(),
+    BandDef::new(250.0,  4000.0, "mid").unwrap(),
+    BandDef::new(4000.0, 20000.0, "high").unwrap(),
+];
+let be = Op::BandExtract(BandExtractParams::new(bands, 44100.0, 0.6).unwrap());
+assert_eq!(be.name(), "BandExtract");
+
+// Stateless BandExtract (smoothing == 0.0)
+let bands2 = vec![BandDef::new(0.0, 22050.0, "full").unwrap()];
+let be_stateless = Op::BandExtract(BandExtractParams::new(bands2, 44100.0, 0.0).unwrap());
+assert_eq!(be_stateless.name(), "BandExtract");
 ```
 
 ### Using `Op::custom()` (safe constructor)
@@ -419,7 +572,7 @@ fn dispatch_op(&self, op: &Op, inputs: &[&[u8]], outputs: &mut [Vec<u8>]) -> Res
 graph TD
     ops["core/src/ops/"] --> mod_rs["mod.rs<br/>Op enum · OpError · re-exports"]
     ops --> ml_rs["ml.rs<br/>ML param structs<br/>Conv2dParams · LinearParams · …"]
-    ops --> signal_rs["signal.rs<br/>Signal param structs<br/>— Phase 3 —"]
+    ops --> signal_rs["signal.rs<br/>Signal param structs<br/>WindowParams · FftParams · BandExtractParams<br/>WindowKind · FftDirection · FftOutput · BandDef"]
 ```
 
 ## Further Reading

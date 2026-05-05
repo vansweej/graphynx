@@ -32,6 +32,7 @@ every other backend plug in through a single unified trait.
 │  Compute backends              ML runtime backends                      │
 │  ┌─────┐ ┌──────┐ ┌───────┐   ┌──────┐ ┌────────┐ ┌──────┐ ┌───────┐  │
 │  │ CPU │ │ CUDA │ │OpenCL │   │ ONNX │ │libtorch│ │TFLite│ │candle │  │
+│  │(sig)│ │(PTX) │ │(plan) │   │(plan)│ │ (plan) │ │(plan)│ │ (plan)│  │
 │  └──┬──┘ └──┬───┘ └──┬────┘   └──┬───┘ └───┬────┘ └──┬───┘ └──┬────┘  │
 │     │       │        │           │         │         │        │        │
 │  ┌──┴┐ ┌───┴┐ ┌─────┴┐ ┌──┐    │         │         │        │        │
@@ -47,10 +48,10 @@ every other backend plug in through a single unified trait.
 │                         Execution Layer                                │
 │                                                                        │
 │  ┌──────────────┐  ┌──────────────┐  ┌───────────────────────────────┐ │
-│  │  Scheduler   │  │  Executor    │  │  Buffer Manager               │ │
-│  │  (topo sort, │  │  (dispatch   │  │  (allocate, transfer, track   │ │
-│  │   readiness) │  │   loop)      │  │   location; defers to backend │ │
-│  │              │  │              │  │   for managed-memory runtimes)│ │
+│  │  Scheduler   │  │  Executor    │  │  Buffer Arena                 │ │
+│  │  (topo sort, │  │  (dispatch   │  │  (pre-allocated inter-node    │ │
+│  │   readiness) │  │   loop)      │  │   byte buffers; state for     │ │
+│  │              │  │              │  │   stateful ops like BandExtr.)│ │
 │  └──────────────┘  └──────────────┘  └───────────────────────────────┘ │
 └──────────────────────────────────────┬─────────────────────────────────┘
                                        │
@@ -58,10 +59,10 @@ every other backend plug in through a single unified trait.
 │                           Core Layer                                   │
 │                                                                        │
 │  ┌──────────────┐  ┌──────────────────┐  ┌──────────┐  ┌────────────┐ │
-│  │  Graph IR    │  │  Tensor Type     │  │  ML Op   │  │  Error     │ │
+│  │  Graph IR    │  │  Tensor Type     │  │  Op      │  │  Error     │ │
 │  │  (nodes,     │  │  System (dtype,  │  │  Catalog │  │  Types     │ │
-│  │   edges,     │  │   shape, layout, │  │          │  │            │ │
-│  │   builder)   │  │   named dims)    │  │          │  │            │ │
+│  │   edges,     │  │   shape, layout, │  │  (ML +   │  │            │ │
+│  │   builder)   │  │   named dims)    │  │  Signal) │  │            │ │
 │  └──────────────┘  └──────────────────┘  └──────────┘  └────────────┘ │
 └────────────────────────────────────────────────────────────────────────┘
 ```
@@ -153,60 +154,67 @@ pub struct TensorType {
   the graph must resolve to the same runtime value.
 - Layouts must be equal, or one side must be `Layout::Any`.
 
-### 3.2 ML op catalog
+### 3.2 Op catalog
 
-A curated set of common ML operations. Backends that support `Op` nodes
-inspect the `Op` variant to decide how to execute it. Each op carries an
-associated params struct.
+A curated set of operations spanning ML and signal processing domains. Backends
+that support `Op` nodes inspect the `Op` variant to decide how to execute it.
+Each op carries an associated params struct. See [docs/op-catalog.md](docs/op-catalog.md)
+for the full reference.
 
 ```
-src/core/
-  ops/
-    mod.rs           -- Op enum, re-exports
-    params.rs        -- per-op parameter structs
+core/src/ops/
+  mod.rs           -- Op enum, OpError, re-exports
+  ml.rs            -- ML param structs (Conv2dParams, LinearParams, …)
+  signal.rs        -- Signal param structs (WindowParams, FftParams, BandExtractParams)
 ```
 
 ```rust
-/// Curated catalog of primitive ML operations.
-///
-/// Each variant maps to a well-known operation that multiple backends
-/// can implement. The engine validates input/output tensor types
-/// against the op's signature at graph-build time.
+/// Curated catalog of primitive operations.
 pub enum Op {
-    // ── Linear algebra ──────────────────────────────────────────────
+    // ── ML: Linear algebra ──────────────────────────────────────────
     MatMul(MatMulParams),
     Linear(LinearParams),
 
-    // ── Convolution ─────────────────────────────────────────────────
+    // ── ML: Convolution ─────────────────────────────────────────────
     Conv2d(Conv2dParams),
 
-    // ── Activation ──────────────────────────────────────────────────
+    // ── ML: Activation ──────────────────────────────────────────────
     Relu,
     Sigmoid,
     Tanh,
     Gelu,
     Softmax(SoftmaxParams),
 
-    // ── Normalisation ───────────────────────────────────────────────
+    // ── ML: Normalisation ───────────────────────────────────────────
     BatchNorm(BatchNormParams),
     LayerNorm(LayerNormParams),
 
-    // ── Pooling ─────────────────────────────────────────────────────
+    // ── ML: Pooling ─────────────────────────────────────────────────
     MaxPool2d(PoolParams),
     AvgPool2d(PoolParams),
 
-    // ── Shape manipulation ──────────────────────────────────────────
+    // ── ML: Shape manipulation ──────────────────────────────────────
     Reshape(ReshapeParams),
     Transpose(TransposeParams),
     Concat(ConcatParams),
     Flatten(FlattenParams),
 
-    // ── Regularisation ──────────────────────────────────────────────
+    // ── ML: Regularisation ──────────────────────────────────────────
     Dropout(DropoutParams),
 
-    // ── Element-wise arithmetic ─────────────────────────────────────
+    // ── ML: Element-wise arithmetic ─────────────────────────────────
     Add,
     Mul,
+
+    // ── Signal processing ───────────────────────────────────────────
+    /// Apply a windowing function (Hann/Hamming/Blackman) to a frame.
+    Window(WindowParams),
+    /// Compute a forward or inverse FFT; output can be complex,
+    /// magnitude, or power spectrum.
+    Fft(FftParams),
+    /// Extract per-band energy from a spectrum; optional EMA smoothing
+    /// makes this op stateful across executor ticks.
+    BandExtract(BandExtractParams),
 
     // ── Escape hatch ────────────────────────────────────────────────
     /// For any operation not in the catalog. The string is a
@@ -214,82 +222,18 @@ pub enum Op {
     /// serialised parameters.
     Custom { name: String, params: Vec<u8> },
 }
-
-// ── Example param structs ───────────────────────────────────────────
-
-pub struct Conv2dParams {
-    pub kernel_size: [usize; 2],
-    pub stride:      [usize; 2],
-    pub padding:     [usize; 2],
-    pub dilation:    [usize; 2],
-    pub groups:      usize,
-}
-
-pub struct SoftmaxParams {
-    pub axis: i32,
-}
-
-pub struct MatMulParams {
-    pub transpose_a: bool,
-    pub transpose_b: bool,
-}
-
-pub struct LinearParams {
-    pub in_features:  usize,
-    pub out_features: usize,
-    pub bias:         bool,
-}
-
-pub struct PoolParams {
-    pub kernel_size: [usize; 2],
-    pub stride:      [usize; 2],
-    pub padding:     [usize; 2],
-}
-
-pub struct BatchNormParams {
-    pub num_features: usize,
-    pub eps:          f64,
-    pub momentum:     f64,
-}
-
-pub struct LayerNormParams {
-    pub normalized_shape: Vec<usize>,
-    pub eps:              f64,
-}
-
-pub struct ReshapeParams {
-    pub target_shape: Vec<Dim>,
-}
-
-pub struct TransposeParams {
-    pub perm: Vec<usize>,
-}
-
-pub struct ConcatParams {
-    pub axis: i32,
-}
-
-pub struct FlattenParams {
-    pub start_dim: i32,
-    pub end_dim:   i32,
-}
-
-pub struct DropoutParams {
-    pub p: f64,
-}
 ```
+
 
 ### 3.3 Graph IR and node kinds
 
 ```
-src/core/
-  graph/
-    mod.rs
-    node.rs          -- Node, NodeId, NodeKind
-    edge.rs          -- Edge, Port
-    builder.rs       -- GraphBuilder (fluent API)
-    ir.rs            -- Graph struct (adjacency list)
-    validate.rs      -- cycle detection, type checks, backend checks
+core/src/graph/
+  mod.rs           -- Graph, GraphBuilder, public re-exports
+  node.rs          -- Node, NodeId, NodeKind, stateful flag
+  edge.rs          -- Edge, EdgeSource, PortRef, SourcePort, SinkPort, SinkConnection
+  builder.rs       -- GraphBuilder (fluent API)
+  validate.rs      -- cycle detection, type checks, backend checks
 ```
 
 ```rust
@@ -680,32 +624,32 @@ Executor::run(graph, backends):
 
 ## 6. Backend layer — Pluggable implementations
 
-All backends implement the unified `Backend` trait. They are grouped by
-nature for code organisation but share the same interface.
+All backends implement the unified `Backend` trait. The workspace currently
+ships two backend crates; more are planned.
 
 ```
-src/backends/
-  mod.rs                 -- Backend trait, BackendRegistry, re-exports
+backends/src/lib.rs            -- Backend trait, BackendError, DeviceId, BackendCaps
 
-  compute/               -- Explicit-memory, raw-kernel backends
-    mod.rs
-    cpu.rs               -- CpuBackend              (always available)
-    cuda.rs              -- CudaBackend              (feature = "cuda")
-    opencl.rs            -- OpenClBackend            (feature = "opencl")
-    vulkan.rs            -- VulkanBackend            (feature = "vulkan")
-    wgpu.rs              -- WgpuBackend              (feature = "wgpu")
-    fpga.rs              -- FpgaBackend              (feature = "fpga")
+backends-cpu/src/
+  lib.rs                       -- CpuBackend (managed memory, signal ops)
+  signal/
+    mod.rs                     -- dispatch router
+    window.rs                  -- Hann / Hamming / Blackman windowing
+    fft.rs                     -- rustfft forward/inverse FFT
+    band.rs                    -- bin summing + EMA smoothing
 
-  ml/                    -- Managed-memory, ML runtime backends
-    mod.rs
-    onnx.rs              -- OnnxBackend              (feature = "onnx")
-    torch.rs             -- TorchBackend             (feature = "torch")
-    tflite.rs            -- TfLiteBackend            (feature = "tflite")
-    candle.rs            -- CandleBackend            (feature = "candle")
-    burn.rs              -- BurnBackend              (feature = "burn")
+backends-cuda/src/
+  lib.rs                       -- CudaBackend (explicit memory, PTX kernels)
+  kernel.cu                    -- CUDA C kernel source
+  build.rs                     -- emits CUDA linker search paths
+
+-- Planned future backends --
+backends-opencl/               -- OpenClBackend    (feature = "opencl")
+backends-onnx/                 -- OnnxBackend      (feature = "onnx")
+backends-torch/                -- TorchBackend     (feature = "torch")
 ```
 
-### 6.1 Compute backend example: CUDA
+### 6.1 Compute backend example: CudaBackend (explicit memory)
 
 ```rust
 /// CUDA-specific kernel descriptor.
@@ -759,7 +703,43 @@ impl Backend for CudaBackend {
 }
 ```
 
-### 6.2 ML runtime backend example: ONNX Runtime
+### 6.2 Signal backend example: CpuBackend (managed memory)
+
+```rust
+pub struct CpuBackend {
+    device_id: DeviceId,
+    fft_planner: Mutex<FftPlanner<f32>>,
+}
+
+impl Backend for CpuBackend {
+    fn name(&self) -> &str { "cpu" }
+    fn device_id(&self) -> &DeviceId { &self.device_id }
+    fn capabilities(&self) -> BackendCaps {
+        BackendCaps {
+            memory: MemoryModel::Managed,
+            supported_kinds: vec![NodeKindTag::Op],
+        }
+    }
+
+    // Explicit memory ops — not applicable for managed-memory backend.
+    fn alloc(&self, _: usize) -> Result<Box<dyn DeviceBuffer>, BackendError> {
+        Err(BackendError::NotApplicable)
+    }
+
+    fn dispatch_op(&self, op: &Op, inputs: &[&[u8]], outputs: &mut [Vec<u8>])
+        -> Result<(), BackendError>
+    {
+        match op {
+            Op::Window(p)      => signal::apply_window(p, inputs, outputs),
+            Op::Fft(p)         => signal::apply_fft(p, inputs, outputs, &self.fft_planner),
+            Op::BandExtract(p) => signal::apply_band_extract(p, inputs, outputs),
+            _                  => Err(BackendError::UnsupportedOp),
+        }
+    }
+}
+```
+
+### 6.3 ML runtime backend example: ONNX Runtime (planned)
 
 ```rust
 pub struct OnnxBackend {
@@ -853,7 +833,7 @@ impl Backend for OnnxBackend {
 
 ## 8. Source tree
 
-The repository is a **Cargo workspace** with four member crates. All crates
+The repository is a **Cargo workspace** with five member crates. All crates
 are rooted directly in the repository root. There is a single `Cargo.lock` at
 the workspace root.
 
@@ -869,25 +849,50 @@ core/                         -- crate: graph-core
       mod.rs
       device_id.rs            -- DeviceId, DeviceIdError
       dtype.rs                -- DType
-      dim.rs                  -- Dim (Static / Dynamic)
-      tensor_type.rs          -- TensorType
+      dim.rs                  -- Dim (Fixed / Dynamic / Symbolic)
+      tensor_type.rs          -- TensorType, TensorTypeBuilder
       layout.rs               -- Layout
       shape/
         mod.rs                -- Shape, ShapeError, strides, reshape
         ops.rs                -- broadcasting, compatibility
     ops/
       mod.rs                  -- Op enum, OpError
-      params.rs               -- per-op parameter structs
+      ml.rs                   -- ML param structs (Conv2dParams, LinearParams, …)
+      signal.rs               -- Signal param structs (WindowParams, FftParams,
+                              --   BandExtractParams, WindowKind, FftDirection,
+                              --   FftOutput, BandDef)
+    graph/
+      mod.rs                  -- Graph, GraphBuilder, public re-exports
+      node.rs                 -- Node, NodeId, NodeKind, stateful flag
+      edge.rs                 -- Edge, EdgeSource, PortRef, SourcePort,
+                              --   SinkPort, SinkConnection
+      builder.rs              -- GraphBuilder (fluent API)
+      validate.rs             -- cycle detection, type checks, backend checks
 
 backends/                     -- crate: backends
   Cargo.toml
   src/
     lib.rs                    -- Backend trait, BackendError, KernelDescriptor,
-                              -- pub re-exports of DeviceId / DeviceIdError
-    ml/
-      mod.rs                  -- ML runtime backend stubs / helpers
+                              -- DeviceId, DeviceIdError, BackendCaps, MemoryModel,
+                              -- NodeKindTag
 
-backends-cuda/                -- crate: backends-cuda
+backends-cpu/                 -- crate: backends-cpu  ✅ implemented
+  Cargo.toml
+  src/
+    lib.rs                    -- CpuBackend (managed memory, signal ops)
+    signal/
+      mod.rs                  -- dispatch router
+      window.rs               -- Hann / Hamming / Blackman windowing
+      fft.rs                  -- rustfft forward/inverse FFT
+      band.rs                 -- bin summing + EMA smoothing
+  tests/
+    fft_sine.rs               -- FFT correctness (sine wave)
+    window.rs                 -- windowing integration tests
+    band_extract.rs           -- band energy extraction tests
+    band_ema.rs               -- EMA smoothing tests
+    wav_pipeline.rs           -- end-to-end WAV pipeline test
+
+backends-cuda/                -- crate: backends-cuda  🔧 in progress
   Cargo.toml
   build.rs                    -- emits CUDA linker search paths
   compile-kernel.sh           -- compiles kernel.cu → kernel.ptx via NVCC
@@ -901,9 +906,15 @@ runtime/                      -- crate: runtime
   src/
     lib.rs                    -- run_kernel convenience API + unit tests
     main.rs                   -- binary: demo  (cfg-gated for tarpaulin)
+    executor/
+      mod.rs                  -- Executor struct, new(), run()
+      scheduler.rs            -- topological_sort()
+      buffer.rs               -- BufferArena (inter-node byte buffers)
+      handle.rs               -- InputHandle, OutputHandle
+      state.rs                -- ExecutionState (EMA state persistence)
+      error.rs                -- ExecutorError
   tests/
-    common/
-      mod.rs                  -- shared mock infrastructure
+    common/mod.rs             -- shared mock infrastructure
     run_kernel_toy.rs         -- integration tests for run_kernel
     type_system_toy.rs        -- integration tests for graph-core types
 ```
@@ -913,11 +924,13 @@ runtime/                      -- crate: runtime
 ```
 graph-core
     ↑
-backends      (depends on graph-core)
-    ↑
-backends-cuda (depends on backends)
-    ↑
-runtime       (depends on graph-core + backends + backends-cuda)
+backends           (depends on graph-core)
+    ↑           ↑
+backends-cuda   backends-cpu   (both depend on backends)
+    ↑               ↑
+    └───────────────┘
+            ↑
+         runtime   (depends on graph-core + backends + backends-cuda + backends-cpu)
 ```
 
 **Key invariant:** `graph-core` is backend-agnostic — it depends only on
