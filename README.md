@@ -22,7 +22,7 @@ graph LR
     GC --> RT
     B --> RT
     BC --> RT
-    BX --> RT
+    BX -.->|"optional\n(cuda feature)"| RT
 ```
 
 ## Backends
@@ -72,8 +72,10 @@ nix develop --command cargo build
 
 ### Run the demo
 
+The demo binary requires a CUDA-capable GPU and the `cuda` feature:
+
 ```bash
-nix develop --command cargo run --bin demo
+nix develop --command cargo run --bin demo --features cuda
 ```
 
 ### Test
@@ -96,63 +98,62 @@ nix develop --command cargo deny check
 ```rust
 use graph_core::{
     graph::GraphBuilder,
-    ops::{Op, WindowParams, WindowKind, FftParams, FftDirection, FftOutput,
-          BandExtractParams, BandDef},
-    types::{DType, TensorType},
+    ops::{
+        Op,
+        signal::{
+            BandDef, BandExtractParams, FftDirection, FftOutput, FftParams,
+            WindowKind, WindowParams,
+        },
+    },
+    types::TensorType,
 };
-use backends::DeviceId;
 use backends_cpu::CpuBackend;
 use runtime::executor::Executor;
 
 let n: usize = 1024;
 let sr: f32 = 44_100.0;
-let cpu = DeviceId::new("cpu:0");
+let spectrum_len = n / 2 + 1;
 
-let mut b = GraphBuilder::new();
-
-// Input: raw audio frame (f32 × N)
-let audio_src = b.add_source("audio", TensorType::vector(DType::F32, n).unwrap());
-
-// Window node
-let win_node = b.add_op_node(
-    Op::Window(WindowParams { size: n, kind: WindowKind::Hann }),
-    cpu.clone(),
-    vec![TensorType::vector(DType::F32, n).unwrap()],
-);
-
-// FFT node
-let fft_node = b.add_op_node(
-    Op::Fft(FftParams { size: n, direction: FftDirection::Forward,
-                        output: FftOutput::MagnitudeOneSided }),
-    cpu.clone(),
-    vec![TensorType::vector(DType::F32, n / 2 + 1).unwrap()],
-);
-
-// BandExtract node — 3 bands with EMA smoothing
 let bands = vec![
-    BandDef { low_hz: 20.0,  high_hz: 250.0  },
-    BandDef { low_hz: 250.0, high_hz: 4_000.0 },
-    BandDef { low_hz: 4_000.0, high_hz: 20_000.0 },
+    BandDef::new(20.0,     250.0,    "low").unwrap(),
+    BandDef::new(250.0,    4_000.0,  "mid").unwrap(),
+    BandDef::new(4_000.0,  20_000.0, "high").unwrap(),
 ];
-let band_node = b.add_op_node(
-    Op::BandExtract(BandExtractParams::new(bands, sr, n / 2 + 1, 0.1).unwrap()),
-    cpu.clone(),
-    vec![TensorType::vector(DType::F32, 3).unwrap()],
-);
 
-// Wire the graph
-b.add_edge(audio_src, win_node, 0);
-b.add_edge(win_node,  fft_node, 0);
-b.add_edge(fft_node,  band_node, 0);
-b.add_sink("energies", band_node, 0);
+let graph = GraphBuilder::new()
+    .source("audio", TensorType::f32_1d(n))
+    .add_node("window")
+        .device("cpu:0")
+        .op(Op::Window(WindowParams::new(WindowKind::Hann, n).unwrap()))
+        .input_from_source("audio")
+        .output(TensorType::f32_1d(n))
+        .done()
+    .add_node("fft")
+        .device("cpu:0")
+        .op(Op::Fft(FftParams::new(n, FftDirection::Forward,
+                                   FftOutput::Magnitude).unwrap()))
+        .input_from("window", 0)
+        .output(TensorType::f32_1d(spectrum_len))
+        .done()
+    .add_node("bands")
+        .device("cpu:0")
+        .op(Op::BandExtract(BandExtractParams::new(bands, sr, 0.1).unwrap()))
+        .stateful()
+        .input_from("fft", 0)
+        .output(TensorType::f32_1d(3))
+        .done()
+    .sink("energies", TensorType::f32_1d(3))
+        .from("bands", 0)
+        .done()
+    .build()
+    .unwrap();
 
-let graph = b.build().unwrap();
-let backend: Box<dyn backends::Backend> = Box::new(CpuBackend::new(cpu));
+let backend: Box<dyn backends::Backend> = Box::new(CpuBackend::new("cpu:0"));
 let mut exec = Executor::new(graph, vec![backend]).unwrap();
 
 // Run one frame
-let samples: Vec<f32> = vec![0.0_f32; n];
-exec.input("audio").unwrap().write("audio", bytemuck::cast_slice(&samples)).unwrap();
+let samples = vec![0.0_f32; n];
+exec.input("audio").unwrap().write("audio", samples.as_slice()).unwrap();
 exec.run().unwrap();
 let energies: &[f32] = exec.output("energies").unwrap().read().unwrap();
 println!("Band energies: {:?}", energies);
