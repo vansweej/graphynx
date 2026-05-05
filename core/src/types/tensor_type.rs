@@ -219,6 +219,67 @@ impl TensorType {
         })
     }
 
+    /// Infallible shorthand for a rank-1 `f32` tensor of length `n`.
+    ///
+    /// Equivalent to `TensorType::vector(DType::F32, n).unwrap()` but panics
+    /// with a clear message when `n == 0` rather than returning a `Result`.
+    /// Use this when the length is a compile-time or validated constant and
+    /// you do not want to propagate a `Result`.
+    ///
+    /// Layout defaults to [`Layout::RowMajor`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `n == 0`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use graph_core::types::tensor_type::TensorType;
+    /// use graph_core::types::layout::Layout;
+    /// use graph_core::types::dtype::DType;
+    ///
+    /// let v = TensorType::f32_1d(1024);
+    /// assert_eq!(v.rank(), 1);
+    /// assert_eq!(v.dtype(), DType::F32);
+    /// assert_eq!(v.layout(), Layout::RowMajor);
+    /// assert_eq!(v.num_elements(), Some(1024));
+    /// ```
+    pub fn f32_1d(n: usize) -> Self {
+        assert!(n > 0, "TensorType::f32_1d: n must be > 0, got 0");
+        TensorType {
+            dtype: DType::F32,
+            shape: Shape::vector(n).expect("n > 0 guaranteed by assert above"),
+            layout: Layout::RowMajor,
+            dim_names: None,
+            device: None,
+        }
+    }
+
+    /// Infallible shorthand for a rank-0 `f32` scalar tensor.
+    ///
+    /// Equivalent to `TensorType::scalar(DType::F32)`. Provided as a
+    /// named convenience so call sites that deal exclusively with `f32`
+    /// signal data do not need to import [`DType`].
+    ///
+    /// Layout is always [`Layout::Any`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use graph_core::types::tensor_type::TensorType;
+    /// use graph_core::types::layout::Layout;
+    /// use graph_core::types::dtype::DType;
+    ///
+    /// let s = TensorType::f32_scalar();
+    /// assert!(s.is_scalar());
+    /// assert_eq!(s.dtype(), DType::F32);
+    /// assert_eq!(s.layout(), Layout::Any);
+    /// ```
+    pub fn f32_scalar() -> Self {
+        TensorType::scalar(DType::F32)
+    }
+
     /// Start a fluent builder for complex tensor type specifications.
     ///
     /// # Examples
@@ -1077,7 +1138,87 @@ mod tests {
             );
         }
 
-        // --- new ---
+        // --- f32_1d ---
+
+        #[test]
+        fn f32_1d_rank_one() {
+            assert_eq!(TensorType::f32_1d(1024).rank(), 1);
+        }
+
+        #[test]
+        fn f32_1d_dtype_is_f32() {
+            assert_eq!(TensorType::f32_1d(512).dtype(), DType::F32);
+        }
+
+        #[test]
+        fn f32_1d_layout_row_major() {
+            assert_eq!(TensorType::f32_1d(256).layout(), Layout::RowMajor);
+        }
+
+        #[test]
+        fn f32_1d_num_elements() {
+            assert_eq!(TensorType::f32_1d(100).num_elements(), Some(100));
+        }
+
+        #[test]
+        fn f32_1d_size_bytes() {
+            // f32 is 4 bytes; 256 elements → 1024 bytes
+            assert_eq!(TensorType::f32_1d(256).size_bytes(), Some(1024));
+        }
+
+        #[test]
+        fn f32_1d_no_dim_names() {
+            assert!(TensorType::f32_1d(8).dim_names().is_none());
+        }
+
+        #[test]
+        fn f32_1d_no_device() {
+            assert!(TensorType::f32_1d(8).device().is_none());
+        }
+
+        #[test]
+        #[should_panic(expected = "n must be > 0")]
+        fn f32_1d_zero_panics() {
+            let _ = TensorType::f32_1d(0);
+        }
+
+        // --- f32_scalar ---
+
+        #[test]
+        fn f32_scalar_rank_zero() {
+            assert_eq!(TensorType::f32_scalar().rank(), 0);
+        }
+
+        #[test]
+        fn f32_scalar_dtype_is_f32() {
+            assert_eq!(TensorType::f32_scalar().dtype(), DType::F32);
+        }
+
+        #[test]
+        fn f32_scalar_layout_any() {
+            assert_eq!(TensorType::f32_scalar().layout(), Layout::Any);
+        }
+
+        #[test]
+        fn f32_scalar_is_scalar() {
+            assert!(TensorType::f32_scalar().is_scalar());
+        }
+
+        #[test]
+        fn f32_scalar_no_dim_names() {
+            assert!(TensorType::f32_scalar().dim_names().is_none());
+        }
+
+        #[test]
+        fn f32_scalar_no_device() {
+            assert!(TensorType::f32_scalar().device().is_none());
+        }
+
+        #[test]
+        fn f32_scalar_equals_scalar_f32() {
+            // f32_scalar() must be identical to scalar(DType::F32)
+            assert_eq!(TensorType::f32_scalar(), TensorType::scalar(DType::F32));
+        }
 
         #[test]
         fn new_nchw_rank4_ok() {
