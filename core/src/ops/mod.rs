@@ -9,6 +9,9 @@ pub use ml::{
     BatchNormParams, ConcatParams, Conv2dParams, DropoutParams, FlattenParams, LayerNormParams,
     LinearParams, MatMulParams, PoolParams, ReshapeParams, SoftmaxParams, TransposeParams,
 };
+pub use signal::{
+    BandDef, BandExtractParams, FftDirection, FftOutput, FftParams, WindowKind, WindowParams,
+};
 
 // ── OpError ─────────────────────────────────────────────────────────────────
 
@@ -70,6 +73,36 @@ pub enum OpError {
     /// Custom operation name was empty.
     #[error("Custom op name must not be empty")]
     EmptyCustomName,
+
+    // ── Signal processing errors ──────────────────────────────────────────
+    /// FFT size was zero. Must be > 0.
+    #[error("FFT size must be > 0")]
+    ZeroFftSize,
+
+    /// Window size was zero. Must be > 0.
+    #[error("Window size must be > 0")]
+    ZeroWindowSize,
+
+    /// Band list was empty. At least one band must be specified.
+    #[error("bands must not be empty")]
+    EmptyBands,
+
+    /// Sample rate was non-positive. Must be > 0.0.
+    #[error("sample_rate_hz must be > 0.0, got {0}")]
+    InvalidSampleRate(f32),
+
+    /// EMA smoothing factor was outside `[0.0, 1.0)`.
+    #[error("smoothing must be in [0.0, 1.0), got {0}")]
+    InvalidSmoothing(f32),
+
+    /// Band range was invalid: `low_hz >= high_hz` or `low_hz < 0.0`.
+    #[error("band range invalid: low_hz ({low}) must be < high_hz ({high}) and both >= 0")]
+    InvalidBandRange {
+        /// The lower bound that was supplied.
+        low: f32,
+        /// The upper bound that was supplied.
+        high: f32,
+    },
 }
 
 // ── Op ─────────────────────────────────────────────────────────────────────
@@ -92,6 +125,7 @@ pub enum OpError {
 /// | Shape | [`Reshape`](Op::Reshape), [`Transpose`](Op::Transpose), [`Concat`](Op::Concat), [`Flatten`](Op::Flatten) |
 /// | Regularisation | [`Dropout`](Op::Dropout) |
 /// | Element-wise | [`Add`](Op::Add), [`Mul`](Op::Mul) |
+/// | Signal processing | [`Fft`](Op::Fft), [`Window`](Op::Window), [`BandExtract`](Op::BandExtract) |
 /// | Escape hatch | [`Custom`](Op::Custom) |
 ///
 /// # Extension
@@ -178,6 +212,29 @@ pub enum Op {
     /// Element-wise multiplication of two tensors with matching shapes.
     Mul,
 
+    // ── Signal processing ────────────────────────────────────────────────
+    /// Windowing function applied to an audio frame before FFT.
+    ///
+    /// Reduces spectral leakage by tapering frame edges to zero.
+    /// Input and output shapes are identical: `[size] f32`.
+    Window(WindowParams),
+    /// Fast Fourier Transform (forward or inverse).
+    ///
+    /// Input: `[size] f32` (real samples).
+    /// Output shape depends on [`FftOutput`]:
+    /// - `Complex`   → `[size] f32` (interleaved re/im pairs)
+    /// - `Magnitude` → `[size/2+1] f32`
+    /// - `Power`     → `[size/2+1] f32`
+    Fft(FftParams),
+    /// Frequency band energy extraction from a magnitude or power spectrum.
+    ///
+    /// Input: `[fft_size/2+1] f32` — one-sided spectrum from [`Op::Fft`].
+    /// Output: `[bands.len()] f32` — energy per band.
+    ///
+    /// When `smoothing > 0.0` this op is **stateful**: the executor prepends
+    /// the EMA state to inputs and appends the updated state to outputs.
+    BandExtract(BandExtractParams),
+
     // ── Escape hatch ─────────────────────────────────────────────────────
     /// Any operation not covered by the catalog.
     ///
@@ -252,6 +309,9 @@ impl Op {
             Op::Dropout(_) => "Dropout",
             Op::Add => "Add",
             Op::Mul => "Mul",
+            Op::Window(_) => "Window",
+            Op::Fft(_) => "Fft",
+            Op::BandExtract(_) => "BandExtract",
             Op::Custom { name, .. } => name.as_str(),
         }
     }
@@ -277,7 +337,6 @@ impl Op {
             Op::Relu | Op::Sigmoid | Op::Tanh | Op::Gelu | Op::Add | Op::Mul
         )
     }
-
     /// Returns `true` if this is a [`Op::Custom`] operation.
     ///
     /// # Examples
@@ -313,6 +372,52 @@ impl Op {
     /// ```
     pub fn is_spatial_2d(&self) -> bool {
         matches!(self, Op::Conv2d(_) | Op::MaxPool2d(_) | Op::AvgPool2d(_))
+    }
+
+    // ── State ─────────────────────────────────────────────────────────────
+
+    /// Returns the state tensor type for stateful operations, or `None` for
+    /// stateless operations.
+    ///
+    /// The executor uses this to size the state buffer on the first tick and
+    /// to thread state bytes through the backend dispatch call.
+    ///
+    /// Currently only [`Op::BandExtract`] with `smoothing > 0.0` is stateful.
+    /// Its state is a 1-D f32 vector with one EMA accumulator per band.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use graph_core::ops::{Op, BandDef, BandExtractParams};
+    ///
+    /// // Stateless ops return None.
+    /// assert!(Op::Relu.state_shape().is_none());
+    /// assert!(Op::Add.state_shape().is_none());
+    ///
+    /// // BandExtract with smoothing == 0.0 is stateless.
+    /// let bands = vec![BandDef::new(80.0, 8000.0, "all").unwrap()];
+    /// let stateless = BandExtractParams::new(bands.clone(), 44100.0, 0.0).unwrap();
+    /// assert!(Op::BandExtract(stateless).state_shape().is_none());
+    ///
+    /// // BandExtract with smoothing > 0.0 is stateful.
+    /// let stateful = BandExtractParams::new(bands, 44100.0, 0.5).unwrap();
+    /// let shape = Op::BandExtract(stateful).state_shape().unwrap();
+    /// assert_eq!(shape.rank(), 1);
+    /// ```
+    pub fn state_shape(&self) -> Option<crate::types::TensorType> {
+        use crate::types::{dim::Dim, DType, Layout, TensorType};
+        match self {
+            Op::BandExtract(p) if p.is_stateful() => {
+                // One f32 EMA accumulator per band.
+                TensorType::new(
+                    DType::F32,
+                    vec![Dim::Fixed(p.bands.len())],
+                    Layout::RowMajor,
+                )
+                .ok()
+            }
+            _ => None,
+        }
     }
 }
 
@@ -506,6 +611,80 @@ mod tests {
         assert_eq!(op.name(), "no_params");
     }
 
+    #[test]
+    fn name_window() {
+        let op = Op::Window(WindowParams::new(WindowKind::Hann, 2048).unwrap());
+        assert_eq!(op.name(), "Window");
+    }
+
+    #[test]
+    fn name_fft() {
+        let op =
+            Op::Fft(FftParams::new(2048, FftDirection::Forward, FftOutput::Magnitude).unwrap());
+        assert_eq!(op.name(), "Fft");
+    }
+
+    #[test]
+    fn name_band_extract() {
+        let bands = vec![BandDef::new(80.0, 8000.0, "all").unwrap()];
+        let op = Op::BandExtract(BandExtractParams::new(bands, 44100.0, 0.0).unwrap());
+        assert_eq!(op.name(), "BandExtract");
+    }
+
+    // ── Op::state_shape() — signal ops ────────────────────────────────────
+
+    #[test]
+    fn state_shape_relu_is_none() {
+        assert!(Op::Relu.state_shape().is_none());
+    }
+
+    #[test]
+    fn state_shape_add_is_none() {
+        assert!(Op::Add.state_shape().is_none());
+    }
+
+    #[test]
+    fn state_shape_window_is_none() {
+        let op = Op::Window(WindowParams::new(WindowKind::Hann, 2048).unwrap());
+        assert!(op.state_shape().is_none());
+    }
+
+    #[test]
+    fn state_shape_fft_is_none() {
+        let op =
+            Op::Fft(FftParams::new(2048, FftDirection::Forward, FftOutput::Magnitude).unwrap());
+        assert!(op.state_shape().is_none());
+    }
+
+    #[test]
+    fn state_shape_band_extract_stateless_is_none() {
+        let bands = vec![BandDef::new(80.0, 8000.0, "all").unwrap()];
+        let op = Op::BandExtract(BandExtractParams::new(bands, 44100.0, 0.0).unwrap());
+        assert!(op.state_shape().is_none());
+    }
+
+    #[test]
+    fn state_shape_band_extract_stateful_returns_shape() {
+        let bands = vec![
+            BandDef::new(80.0, 300.0, "low").unwrap(),
+            BandDef::new(300.0, 2000.0, "mid").unwrap(),
+            BandDef::new(2000.0, 8000.0, "high").unwrap(),
+        ];
+        let op = Op::BandExtract(BandExtractParams::new(bands, 44100.0, 0.5).unwrap());
+        let shape = op.state_shape().expect("should be stateful");
+        assert_eq!(shape.rank(), 1);
+        // State is [3] f32 — one accumulator per band.
+        assert_eq!(shape.num_elements(), Some(3));
+    }
+
+    #[test]
+    fn state_shape_band_extract_single_band_stateful() {
+        let bands = vec![BandDef::new(0.0, 22050.0, "full").unwrap()];
+        let op = Op::BandExtract(BandExtractParams::new(bands, 44100.0, 0.1).unwrap());
+        let shape = op.state_shape().unwrap();
+        assert_eq!(shape.num_elements(), Some(1));
+    }
+
     // ── Op::is_parameterless() ─────────────────────────────────────────
 
     #[test]
@@ -654,6 +833,26 @@ mod tests {
         .is_parameterless());
     }
 
+    #[test]
+    fn not_parameterless_window() {
+        let op = Op::Window(WindowParams::new(WindowKind::Hann, 2048).unwrap());
+        assert!(!op.is_parameterless());
+    }
+
+    #[test]
+    fn not_parameterless_fft() {
+        let op =
+            Op::Fft(FftParams::new(2048, FftDirection::Forward, FftOutput::Magnitude).unwrap());
+        assert!(!op.is_parameterless());
+    }
+
+    #[test]
+    fn not_parameterless_band_extract() {
+        let bands = vec![BandDef::new(80.0, 8000.0, "all").unwrap()];
+        let op = Op::BandExtract(BandExtractParams::new(bands, 44100.0, 0.0).unwrap());
+        assert!(!op.is_parameterless());
+    }
+
     // ── Op::is_custom() ────────────────────────────────────────────────
 
     #[test]
@@ -744,6 +943,26 @@ mod tests {
         .is_spatial_2d());
     }
 
+    #[test]
+    fn not_spatial_2d_window() {
+        let op = Op::Window(WindowParams::new(WindowKind::Hann, 2048).unwrap());
+        assert!(!op.is_spatial_2d());
+    }
+
+    #[test]
+    fn not_spatial_2d_fft() {
+        let op =
+            Op::Fft(FftParams::new(2048, FftDirection::Forward, FftOutput::Magnitude).unwrap());
+        assert!(!op.is_spatial_2d());
+    }
+
+    #[test]
+    fn not_spatial_2d_band_extract() {
+        let bands = vec![BandDef::new(80.0, 8000.0, "all").unwrap()];
+        let op = Op::BandExtract(BandExtractParams::new(bands, 44100.0, 0.0).unwrap());
+        assert!(!op.is_spatial_2d());
+    }
+
     // ── Display ───────────────────────────────────────────────────────────
 
     #[test]
@@ -775,6 +994,26 @@ mod tests {
     #[test]
     fn display_add() {
         assert_eq!(Op::Add.to_string(), "Add");
+    }
+
+    #[test]
+    fn display_window() {
+        let op = Op::Window(WindowParams::new(WindowKind::Hann, 2048).unwrap());
+        assert_eq!(op.to_string(), "Window");
+    }
+
+    #[test]
+    fn display_fft() {
+        let op =
+            Op::Fft(FftParams::new(2048, FftDirection::Forward, FftOutput::Magnitude).unwrap());
+        assert_eq!(op.to_string(), "Fft");
+    }
+
+    #[test]
+    fn display_band_extract() {
+        let bands = vec![BandDef::new(80.0, 8000.0, "all").unwrap()];
+        let op = Op::BandExtract(BandExtractParams::new(bands, 44100.0, 0.0).unwrap());
+        assert_eq!(op.to_string(), "BandExtract");
     }
 
     // ── Clone / Debug ─────────────────────────────────────────────────────
