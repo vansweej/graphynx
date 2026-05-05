@@ -11,7 +11,7 @@
 > | 2 — Synchronous Executor | ✅ Complete |
 > | 3 — Signal Processing Ops + CPU Backend | ✅ Complete |
 > | 4 — nodemoss Integration (Synthetic Audio) | ✅ Complete |
-> | 5 — Live Audio Capture | 🔲 Not started |
+> | 5 — Live Audio Capture | ✅ Complete |
 
 ---
 
@@ -953,160 +953,127 @@ let iso   = ISO_BASE + high * ISO_RANGE;
 
 ## Phase 5 — Live Audio Capture
 
-**Status:** 🔲 Not started  
-**Branch (in graphynx):** `feat/audio-source`  
-**Goal:** Replace WAV file input with real-time microphone capture via `cpal`.
-Design the threading interface even though the first implementation runs
-synchronously in the render loop. Document the upgrade path to a threaded
-`GraphRunner`.
+**Status:** ✅ Complete  
+**Branch (in graphynx):** `feat/audio-source` (merged to `main`)  
+**Goal:** Add real-time microphone input to the graphynx runtime (feature-gated
+behind `live-audio`) and integrate it into `voice_metaballs`.  The synthetic
+audio generation from Phase 4 is preserved as a fallback and is togglable at
+runtime via the `M` key.
 
-### New module in `runtime`
+### New module: `runtime/src/audio/`
 
 ```
 runtime/src/audio/
-  mod.rs        — AudioSource trait, AudioConfig, AudioError
-  capture.rs    — CpalCapture (wraps cpal input stream)
-  ringbuf.rs    — Lock-free SPSC ring buffer for audio frames
+  mod.rs        — AudioSource trait, AudioConfig, AudioError, SynthSource
+  ringbuf.rs    — Lock-free SPSC RingBuffer<T>
+  capture.rs    — CpalCapture (behind cfg(feature = "live-audio"))
 ```
 
 ### `AudioSource` trait
 
-The trait is threading-agnostic by design. The synchronous implementation
-stores data inline; a future threaded implementation writes to a ring buffer
-from a background thread.
-
 ```rust
 pub trait AudioSource: Send {
-    /// Non-blocking. Returns the latest complete audio frame (frame_size
-    /// samples), or None if not enough samples have accumulated yet.
-    fn latest_frame(&self) -> Option<&[f32]>;
+    /// Return the latest complete frame, or None if not enough samples
+    /// have accumulated yet.  Never blocks.
+    fn next_frame(&mut self) -> Option<&[f32]>;
 
     fn sample_rate(&self) -> u32;
     fn frame_size(&self) -> usize;
 }
 ```
 
-### `CpalCapture`
+### `SynthSource`
 
-```rust
-pub struct AudioConfig {
-    pub sample_rate: u32,    // 44100 or 48000
-    pub frame_size:  usize,  // 2048
-    pub channels:    u16,    // 1 (mono); stereo is downmixed
-}
+Deterministic additive synthesis (same algorithm as Phase 4's
+`synthesise_frame`), now exposed as `impl AudioSource`.  Always returns
+`Some` — never blocks.  `set_params(fundamental_hz, formants)` allows
+updating the voice preset without rebuilding the source.
 
-pub struct CpalCapture {
-    _stream:   cpal::Stream,          // keeps stream alive
-    ring:      Arc<RingBuffer<f32>>,  // written by cpal callback
-    frame_buf: Vec<f32>,              // scratch buffer for latest_frame()
-    config:    AudioConfig,
-}
+### `RingBuffer<T>`
 
-impl CpalCapture {
-    pub fn new(config: AudioConfig) -> Result<Self, AudioError>;
-}
+Lock-free SPSC ring buffer using `AtomicUsize` head/tail indices.
+Capacity rounded to next power of two.  When full, `push` overwrites the
+oldest sample (freshness over completeness).  No external dependencies.
 
-impl AudioSource for CpalCapture { ... }
+### `CpalCapture` (feature `live-audio`)
+
+Opens the default audio input device, starts a non-blocking f32 input
+stream, downmixes to mono, and pushes samples into a `RingBuffer` sized at
+`frame_size * 8`.  `next_frame` drains a complete frame when enough samples
+are available, or returns `None` to skip graph execution for that tick.
+
+`cpal::Stream` is not `Send` on Linux/ALSA; `CpalCapture` carries an
+`unsafe impl Send` with a documented invariant that it is constructed and
+used exclusively on the render thread.
+
+### Feature gating
+
+```toml
+# runtime/Cargo.toml
+[features]
+live-audio = ["dep:cpal"]
 ```
 
-The cpal callback:
-```rust
-move |data: &[f32], _| {
-    // Downmix stereo to mono if needed, then push to ring
-    for frame in data.chunks(channels as usize) {
-        let mono = frame.iter().sum::<f32>() / channels as f32;
-        ring.push(mono);  // drops oldest if full
-    }
-}
+Consumers opt in:
+```toml
+runtime = { path = "...", features = ["live-audio"] }
 ```
 
-### Ring buffer
-
-A bounded SPSC ring buffer with power-of-two capacity. Single producer (cpal
-callback thread), single consumer (`latest_frame()` on the render thread).
-Implemented without external dependencies using `AtomicUsize` indices.
-
-Capacity: `frame_size * 4` (holds 4 frames of headroom).
-
-### Nix flake additions
+### Nix additions (graphynx `flake.nix`)
 
 ```nix
 buildInputs = with pkgs; [
   # ... existing ...
-  alsa-lib    # ALSA headers required by cpal on Linux
-  pkg-config  # for alsa-lib detection by cpal's build script
+  alsa-lib    # ALSA headers for cpal on Linux
+  pkg-config  # for alsa-lib detection
 ];
 ```
 
-### Fallback for CI / headless environments
+### Integration in `voice_metaballs` (nodemoss)
 
-`CpalCapture::new()` returns `Err(AudioError::NoDevice)` if no input device is
-available. The `voice_metaballs` example falls back to WAV file iteration in
-that case, so CI remains green without a microphone.
+- `AudioMode` enum: `Live` | `Synth`
+- On `init`: try `CpalCapture::new(config)` → fall back to `SynthSource`
+- `M` key toggles between live and synth at runtime
+- `audio_source.next_frame()` replaces the inline `synthesise_frame()` call
+- `audio_phase` field removed (phase is now internal to `SynthSource`)
+- HUD shows `Audio: Live [M]` or `Audio: Synth [M]`
 
-```rust
-let audio: Box<dyn AudioSource> = match CpalCapture::new(config) {
-    Ok(cap) => Box::new(cap),
-    Err(AudioError::NoDevice) => {
-        log::warn!("No audio input device — falling back to WAV file");
-        Box::new(WavSource::from_file("assets/test_voice.wav")?)
-    }
-    Err(e) => return Err(e.into()),
-};
-```
+### Steps completed
 
-### Threading upgrade path (documented, not implemented)
-
-Document in `docs/streaming-executor.md`:
-
-1. `AudioSource::latest_frame()` already decouples the audio thread from the
-   consumer — the interface is unchanged
-2. Replace `executor.run()` in `update()` with
-   `graph_runner.output("band_energies").latest_as::<f32>()`
-3. `GraphRunner` spawns its own thread; parks until ring buffer has data; runs
-   the full graph; publishes results to an atomic triple-buffer slot
-4. `update()` reads the slot non-blocking; gets the most recent value or
-   re-uses the previous one if no new output has arrived
-5. The `InputHandle` / `OutputHandle` interface is unchanged — only the backing
-   implementation moves to a background thread
-
-### Steps
-
-1. Add `cpal = "0.17"` to workspace `Cargo.toml`
-2. Add `alsa-lib` and `pkg-config` to `flake.nix` `buildInputs`
-3. Implement `RingBuffer<T>` in `runtime/src/audio/ringbuf.rs`
-4. Implement `AudioError` in `runtime/src/audio/mod.rs`
-5. Implement `CpalCapture` in `runtime/src/audio/capture.rs`
-6. Implement `WavSource` (fallback) in `runtime/src/audio/mod.rs`
-7. Add `pub mod audio;` to `runtime/src/lib.rs`
-8. Update `voice_metaballs` to use `CpalCapture` with WAV fallback
-9. Write unit tests:
-   - `RingBuffer`: push/pop, wrap-around, empty returns None
-   - `WavSource`: returns correct frame count from fixture
-   - `CpalCapture`: starts without panic on a system with audio (skip in CI)
-10. Write `docs/streaming-executor.md` — threading upgrade path
-11. Test with actual voice: verify visual response to singing
-12. Validate: `cargo test`, `cargo clippy`, `cargo tarpaulin`, `nix develop --command cargo build`
+1. Added `cpal = "0.15"` to workspace `Cargo.toml`
+2. Added `alsa-lib` and `pkg-config` to graphynx `flake.nix`
+3. Added `live-audio` feature to `runtime/Cargo.toml`
+4. Implemented `RingBuffer<T>` in `runtime/src/audio/ringbuf.rs`
+5. Implemented `AudioSource`, `AudioConfig`, `AudioError`, `SynthSource`
+   in `runtime/src/audio/mod.rs`
+6. Implemented `CpalCapture` in `runtime/src/audio/capture.rs`
+7. Added `pub mod audio;` to `runtime/src/lib.rs`
+8. Wrote `docs/streaming-executor.md` — threading upgrade path
+9. Validated: 83 tests pass, 92.81% coverage, clippy clean, fmt clean
+10. Updated `voice_metaballs` to use `AudioSource` trait + `M` key toggle
+11. Added `alsa-lib` to nodemoss `flake.nix`
+12. Merged `feat/audio-source` → `main` in graphynx
 
 ### Files touched (graphynx)
 
 | File | Change |
 |------|--------|
-| `Cargo.toml` | Add `cpal`, `alsa-lib`/`pkg-config` note |
-| `flake.nix` | Add `alsa-lib`, `pkg-config` to `buildInputs` |
-| `runtime/Cargo.toml` | Add `cpal` dependency |
-| `runtime/src/lib.rs` | Add `pub mod audio;` |
+| `Cargo.toml` | Added `cpal = "0.15"` to workspace deps |
+| `flake.nix` | Added `alsa-lib`, `pkg-config` to `buildInputs` |
+| `runtime/Cargo.toml` | Added `live-audio` feature gating `cpal` |
+| `runtime/src/lib.rs` | Added `pub mod audio;` |
 | `runtime/src/audio/mod.rs` | New |
-| `runtime/src/audio/capture.rs` | New |
 | `runtime/src/audio/ringbuf.rs` | New |
+| `runtime/src/audio/capture.rs` | New |
 | `docs/streaming-executor.md` | New |
 
 ### Files touched (nodemoss)
 
 | File | Change |
 |------|--------|
-| `examples/voice_metaballs/src/main.rs` | Switch to `CpalCapture` + WAV fallback |
-| `examples/voice_metaballs/Cargo.toml` | Add `runtime` dep if not already present |
+| `flake.nix` | Added `alsa-lib` to `linuxBuildInputs` |
+| `examples/voice_metaballs/Cargo.toml` | Added `features = ["live-audio"]` to runtime dep |
+| `examples/voice_metaballs/src/main.rs` | Refactored to `AudioSource` trait; `AudioMode`; `M` key; removed inline synthesis |
 
 ---
 

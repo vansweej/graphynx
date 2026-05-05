@@ -40,6 +40,8 @@ This repo is a **Cargo workspace** with five member crates rooted at the repo ro
   - See `docs/signal-ops.md` for the full algorithm and graph-wiring guide
 - `backends-cuda/` — crate name `backends-cuda` — `CudaBackend`, `CudaBuffer`, `CudaKernelDesc`
 - `runtime/` — crate name `runtime` — `run_kernel` convenience API, `Executor`, integration tests; `demo` binary (requires `--features cuda`)
+  - `runtime::audio` — `AudioSource` trait, `AudioConfig`, `AudioError`, `SynthSource` (additive synthesis); `RingBuffer<T>` (lock-free SPSC); `CpalCapture` (feature-gated behind `live-audio`)
+  - Features: `cuda` (enables `backends-cuda` + `demo` binary), `live-audio` (enables `cpal` + `CpalCapture`)
 
 Dependency graph:
 ```

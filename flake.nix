@@ -106,6 +106,10 @@
             # NIX_HARDENING_ENABLE, which overwhelms the CUDA header template
             # instantiation depth.
             gcc13
+
+            # Audio capture — required by cpal on Linux (live-audio feature)
+            alsa-lib
+            pkg-config
           ];
 
           shellHook = ''
