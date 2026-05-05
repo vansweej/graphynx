@@ -1,5 +1,3 @@
-use std::any::Any;
-
 use log::warn;
 use thiserror::Error;
 
@@ -116,14 +114,9 @@ pub trait DeviceBuffer: Send + Sync {
 
 /// Backend-specific description of a compute kernel to execute.
 ///
-/// Each backend defines its own concrete descriptor struct (e.g.
-/// `CudaKernelDesc`) and downcasts from `&dyn KernelDescriptor` inside its
-/// `dispatch_compute` implementation. The `Any` supertrait bound ensures the
-/// concrete type is `'static`, which is required for safe downcasting.
-pub trait KernelDescriptor: Any + Send + Sync {
-    /// Returns `self` as `&dyn Any` to enable downcasting.
-    fn as_any(&self) -> &dyn Any;
-}
+/// Re-exported from [`graph_core::graph`] for backward compatibility.
+/// Prefer importing directly from `graph_core::graph::KernelDescriptor`.
+pub use graph_core::graph::KernelDescriptor;
 
 // ── Backend ───────────────────────────────────────────────────────────────────
 
@@ -229,6 +222,7 @@ pub trait Backend: Send + Sync {
 
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
     use std::collections::HashMap;
 
     use super::*;

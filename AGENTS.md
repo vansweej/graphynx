@@ -30,7 +30,8 @@ This repo is a **Cargo workspace** with four member crates rooted at the repo ro
 - `core/` — crate name `graph-core` — pure backend-agnostic types and ML-op catalog
   - `graph_core::types` — `DType`, `Dim`, `Layout`, `TensorType`, `Shape`, `DeviceId`
   - `graph_core::ops` — `Op` enum, `OpError`, per-op parameter structs
-- `backends/` — crate name `backends` — `Backend` trait, `BackendError`, `KernelDescriptor`, `DeviceId` (re-exported from `graph-core`)
+  - `graph_core::graph` — Graph IR: `Graph`, `GraphBuilder`, `Node`, `NodeId`, `NodeKind`, `Edge`, `EdgeSource`, `PortRef`, `SourcePort`, `SinkPort`, `SinkConnection`, `GraphError`, `KernelDescriptor`
+- `backends/` — crate name `backends` — `Backend` trait, `BackendError`, `KernelDescriptor` (re-exported from `graph-core`), `DeviceId` (re-exported from `graph-core`)
 - `backends-cuda/` — crate name `backends-cuda` — `CudaBackend`, `CudaBuffer`, `CudaKernelDesc`
 - `runtime/` — crate name `runtime` — `run_kernel` convenience API, `demo` binary, integration tests
 
