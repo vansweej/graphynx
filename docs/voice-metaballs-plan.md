@@ -7,7 +7,7 @@
 > | Phase | Status |
 > |-------|--------|
 > | 0 — Op Catalog Refactor | ✅ Complete |
-> | 1 — Graph IR | 🔲 Not started |
+> | 1 — Graph IR | ✅ Complete |
 > | 2 — Synchronous Executor | 🔲 Not started |
 > | 3 — Signal Processing Ops + CPU Backend | 🔲 Not started |
 > | 4 — nodemoss Integration (WAV input) | 🔲 Not started |
