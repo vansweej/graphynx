@@ -372,7 +372,7 @@ None — graph IR uses only existing core types (`TensorType`, `DeviceId`, `Op`)
 
 ## Phase 2 — Synchronous Executor
 
-**Status:** 🔲 Not started  
+**Status:** ✅ Complete  
 **Branch:** `feat/executor`  
 **Goal:** Implement a one-shot synchronous executor that runs a graph from
 sources to sinks, dispatching nodes in topological order. Includes
