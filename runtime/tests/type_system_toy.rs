@@ -1,4 +1,4 @@
-use graph_core::ops::{Conv2dParams, LinearParams, MlOp};
+use graph_core::ops::{Conv2dParams, LinearParams, Op};
 use graph_core::types::dtype::DType;
 use graph_core::types::shape::Shape;
 use graph_core::types::{Dim, Layout, TensorType};
@@ -61,9 +61,9 @@ fn toy_shape_supports_broadcast_and_reshape_checks() {
 
 #[test]
 fn toy_ml_ops_can_be_constructed_as_user_facing_descriptors() {
-    let conv = MlOp::Conv2d(Conv2dParams::new([3, 3], [1, 1], [1, 1], [1, 1], 1).unwrap());
-    let linear = MlOp::Linear(LinearParams::new(128, 10, true).unwrap());
-    let custom = MlOp::custom("toy.normalize", vec![1, 2, 3]).unwrap();
+    let conv = Op::Conv2d(Conv2dParams::new([3, 3], [1, 1], [1, 1], [1, 1], 1).unwrap());
+    let linear = Op::Linear(LinearParams::new(128, 10, true).unwrap());
+    let custom = Op::custom("toy.normalize", vec![1, 2, 3]).unwrap();
 
     assert_eq!(conv.name(), "Conv2d");
     assert_eq!(linear.name(), "Linear");

@@ -3,8 +3,8 @@
 //! Run with:
 //!   nix develop --command cargo run -p playground --bin scratch
 
-use graph_core::ops::params::{Conv2dParams, MatMulParams};
-use graph_core::ops::MlOp;
+use graph_core::ops::ml::{Conv2dParams, MatMulParams};
+use graph_core::ops::Op;
 use graph_core::types::dim::Dim;
 use graph_core::types::{DType, Layout, TensorType};
 
@@ -29,10 +29,10 @@ fn main() {
     println!("compatible: {}", input.is_compatible_with(&input));
 
     // ── ML ops ───────────────────────────────────────────────────────────────
-    let conv = MlOp::Conv2d(
+    let conv = Op::Conv2d(
         Conv2dParams::new([3, 3], [1, 1], [1, 1], [1, 1], 1).expect("valid conv2d params"),
     );
-    let matmul = MlOp::MatMul(MatMulParams {
+    let matmul = Op::MatMul(MatMulParams {
         transpose_a: false,
         transpose_b: true,
     });
