@@ -12,6 +12,7 @@
 //! let output: Vec<i32> = runtime::run_kernel(&backend, &desc, &input)?;
 //! ```
 
+pub mod audio;
 pub mod executor;
 
 use bytemuck::Pod;

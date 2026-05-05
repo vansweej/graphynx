@@ -12,12 +12,14 @@ path     = "src/main.rs"
 required-features = ["cuda"]
 
 [features]
-default = []
-cuda    = ["dep:backends-cuda"]
+default    = []
+cuda       = ["dep:backends-cuda"]
+live-audio = ["dep:cpal"]
 
 [dependencies]
 backends      = { workspace = true }
 backends-cuda = { workspace = true, optional = true }
+cpal          = { workspace = true, optional = true }
 graph-core    = { workspace = true }
 bytemuck      = { workspace = true }
 thiserror     = { workspace = true }
