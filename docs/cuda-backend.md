@@ -67,7 +67,7 @@ BackendCaps {
 }
 ```
 
-Currently only `Compute` nodes are supported. `MlOp` support (cuBLAS, cuDNN) is planned.
+Currently only `Compute` nodes are supported. `Op` support (cuBLAS, cuDNN) is planned.
 
 ## CudaBuffer
 
@@ -129,7 +129,7 @@ sequenceDiagram
 - Only single-input / single-output kernels are supported
 - The `new` constructor hardcodes `"hello_kernel"` as the registered function name
 - `shared_mem_bytes` is always 0
-- No `MlOp` or `MlModel` dispatch (defaults return `UnsupportedNodeKind`)
+- No `Op` or `MlModel` dispatch (defaults return `UnsupportedNodeKind`)
 
 ## Dependencies
 

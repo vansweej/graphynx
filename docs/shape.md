@@ -250,5 +250,5 @@ It has zero GPU SDK dependencies and compiles in any environment.
 ## Further Reading
 
 - [Tensor Type System](tensor-type.md) — `TensorType`, `Dim`, `Layout` that wrap `Shape`
-- [ML Op Catalog](ml-op.md) — `ReshapeParams` uses `Shape` for its target shape
+- [Op Catalog](op-catalog.md) — `ReshapeParams` uses `Shape` for its target shape
 - [Architecture Overview](architecture.md) — where `Shape` sits in the layered design

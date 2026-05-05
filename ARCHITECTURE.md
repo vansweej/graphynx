@@ -16,7 +16,7 @@ every other backend plug in through a single unified trait.
 | Execution targets    | **Pluggable backends** — CPU, CUDA, OpenCL, Vulkan, wgpu, FPGA, ONNX RT, libtorch, TFLite, candle, burn, custom |
 | Graph topology       | **DAG first**, streaming/cycles as a future extension                       |
 | Edge data            | **Typed tensors** with dtype, shape (static + dynamic dims), layout, named dims |
-| Node kinds           | **Compute** (raw kernels), **MlOp** (primitive ops), **MlModel** (whole-model inference) |
+| Node kinds           | **Compute** (raw kernels), **Op** (primitive ops), **MlModel** (whole-model inference) |
 | ML op catalog        | **Curated enum** of common ops + `Custom(String)` escape hatch              |
 | Graph definition API | **Rust builder pattern** (programmatic)                                     |
 | Scale                | **Single machine** initially                                                |
@@ -155,14 +155,14 @@ pub struct TensorType {
 
 ### 3.2 ML op catalog
 
-A curated set of common ML operations. Backends that support `MlOp` nodes
-inspect the `MlOp` variant to decide how to execute it. Each op carries an
+A curated set of common ML operations. Backends that support `Op` nodes
+inspect the `Op` variant to decide how to execute it. Each op carries an
 associated params struct.
 
 ```
 src/core/
   ops/
-    mod.rs           -- MlOp enum, re-exports
+    mod.rs           -- Op enum, re-exports
     params.rs        -- per-op parameter structs
 ```
 
@@ -172,7 +172,7 @@ src/core/
 /// Each variant maps to a well-known operation that multiple backends
 /// can implement. The engine validates input/output tensor types
 /// against the op's signature at graph-build time.
-pub enum MlOp {
+pub enum Op {
     // ── Linear algebra ──────────────────────────────────────────────
     MatMul(MatMulParams),
     Linear(LinearParams),
@@ -304,9 +304,9 @@ pub enum NodeKind {
     Compute(Box<dyn KernelDescriptor>),
 
     /// A single primitive ML operation from the curated catalog.
-    /// Multiple backends may support the same MlOp — the engine
+    /// Multiple backends may support the same Op — the engine
     /// picks the one matching the node's target device.
-    MlOp(MlOp),
+    Op(Op),
 
     /// An opaque, pre-trained model loaded from a serialised format
     /// (ONNX, TorchScript, TFLite, SafeTensors, etc.).
@@ -394,7 +394,7 @@ let graph = builder
     // Run a conv2d on the GPU via a hand-written CUDA kernel.
     .add_node("conv")
         .device("cuda:0")
-        .ml_op(MlOp::Conv2d(Conv2dParams {
+        .ml_op(Op::Conv2d(Conv2dParams {
             kernel_size: [3, 3], stride: [1, 1],
             padding: [1, 1], dilation: [1, 1], groups: 1,
         }))
@@ -474,7 +474,7 @@ pub enum MemoryModel {
 /// the full node payload).
 pub enum NodeKindTag {
     Compute,
-    MlOp,
+    Op,
     MlModel,
 }
 
@@ -529,10 +529,10 @@ pub trait Backend: Send + Sync {
     }
 
     /// Execute a primitive ML operation.
-    /// Called for NodeKind::MlOp nodes.
-    fn dispatch_ml_op(
+    /// Called for NodeKind::Op nodes.
+    fn dispatch_op(
         &self,
-        op:      &MlOp,
+        op:      &Op,
         inputs:  &[&[u8]],     // host-side tensor data
         outputs: &mut [Vec<u8>],
     ) -> Result<(), BackendError> {
@@ -558,7 +558,7 @@ The current unified `Backend` trait spans three distinct abstraction layers:
 
 1. **Low-level compute** — explicit device memory management (`alloc`,
    `upload`, `download`) and raw kernel dispatch (`dispatch_compute`).
-2. **Mid-level ML ops** — primitive operation dispatch (`dispatch_ml_op`)
+2. **Mid-level ML ops** — primitive operation dispatch (`dispatch_op`)
    where the backend maps a curated op to its own implementation (cuBLAS,
    cuDNN, hand-written kernels, etc.).
 3. **High-level inference** — whole-model execution (`dispatch_ml_model`)
@@ -572,17 +572,17 @@ layers it does not participate in adds surface area and makes the trait
 harder to reason about.
 
 If this tension becomes concrete — for example, when a second managed-memory
-backend is added, or when the `dispatch_ml_op` surface grows beyond a
+backend is added, or when the `dispatch_op` surface grows beyond a
 handful of operations — consider splitting `Backend` into layered traits:
 
 ```
 ComputeBackend        — alloc, upload, download, dispatch_compute
-MlOpBackend           — dispatch_ml_op
+OpBackend           — dispatch_op
 InferenceBackend      — dispatch_ml_model
 ```
 
 Each backend would implement only the traits matching its capabilities, and
-the executor would accept `&dyn ComputeBackend`, `&dyn MlOpBackend`, or
+the executor would accept `&dyn ComputeBackend`, `&dyn OpBackend`, or
 `&dyn InferenceBackend` depending on the `NodeKind` being dispatched. The
 existing `BackendCaps` / `NodeKindTag` mechanism could be replaced by trait
 bounds, making unsupported operations a compile-time error rather than a
@@ -600,7 +600,7 @@ trait) outweighs the cost of the extra trait hierarchy.
 | `MemoryModel` | Before dispatch                     | Dispatch call                           | After dispatch                  |
 |---------------|-------------------------------------|-----------------------------------------|---------------------------------|
 | `Explicit`    | BufferManager allocs + uploads      | `dispatch_compute(DeviceBuffers)`       | BufferManager downloads if needed |
-| `Managed`     | BufferManager serialises to `&[u8]` | `dispatch_ml_op/model(&[u8], Vec<u8>)` | BufferManager deserialises output |
+| `Managed`     | BufferManager serialises to `&[u8]` | `dispatch_op/model(&[u8], Vec<u8>)` | BufferManager deserialises output |
 
 ---
 
@@ -670,7 +670,7 @@ Executor::run(graph, backends):
               Managed memory:
                 - BufferManager: ensure inputs are on host.
                 - Serialise inputs to &[u8].
-                - Call backend.dispatch_ml_op/model(inputs, outputs).
+                - Call backend.dispatch_op/model(inputs, outputs).
                 - Store output Vec<u8> in BufferManager as host buffers.
         c.  Mark outputs as available for downstream consumers.
   4.  Return final output buffers.
@@ -731,7 +731,7 @@ impl Backend for CudaBackend {
     fn capabilities(&self) -> BackendCaps {
         BackendCaps {
             memory: MemoryModel::Explicit,
-            supported_kinds: vec![NodeKindTag::Compute, NodeKindTag::MlOp],
+            supported_kinds: vec![NodeKindTag::Compute, NodeKindTag::Op],
         }
     }
 
@@ -746,13 +746,13 @@ impl Backend for CudaBackend {
         ...
     }
 
-    fn dispatch_ml_op(&self, op, inputs, outputs) -> Result<(), BackendError> {
+    fn dispatch_op(&self, op, inputs, outputs) -> Result<(), BackendError> {
         // For ops like MatMul, Conv2d — could use cuBLAS, cuDNN, or
         // hand-written CUDA kernels.
         match op {
-            MlOp::MatMul(params) => { /* cuBLAS sgemm */ }
-            MlOp::Conv2d(params) => { /* cuDNN conv forward */ }
-            MlOp::Relu            => { /* element-wise kernel */ }
+            Op::MatMul(params) => { /* cuBLAS sgemm */ }
+            Op::Conv2d(params) => { /* cuDNN conv forward */ }
+            Op::Relu            => { /* element-wise kernel */ }
             _ => Err(BackendError::UnsupportedOp),
         }
     }
@@ -772,7 +772,7 @@ impl Backend for OnnxBackend {
     fn capabilities(&self) -> BackendCaps {
         BackendCaps {
             memory: MemoryModel::Managed,
-            supported_kinds: vec![NodeKindTag::MlModel, NodeKindTag::MlOp],
+            supported_kinds: vec![NodeKindTag::MlModel, NodeKindTag::Op],
         }
     }
 
@@ -794,7 +794,7 @@ impl Backend for OnnxBackend {
         ...
     }
 
-    fn dispatch_ml_op(&self, op, inputs, outputs) -> Result<(), BackendError> {
+    fn dispatch_op(&self, op, inputs, outputs) -> Result<(), BackendError> {
         // Build a single-op ONNX graph on the fly, or use ORT's
         // operator API. Useful for running individual ops like MatMul
         // through ORT without a full model.
@@ -826,7 +826,7 @@ impl Backend for OnnxBackend {
                               ▼                │
                         ┌───────────┐          │
                         │ preprocess│          │
-      auto-transfer     │ (cuda:0)  │ MlOp:    │
+      auto-transfer     │ (cuda:0)  │ Op:    │
       host → device     │ Explicit  │ Conv2d   │
                         └─────┬─────┘          │
                               │ device buf     │
@@ -876,7 +876,7 @@ core/                         -- crate: graph-core
         mod.rs                -- Shape, ShapeError, strides, reshape
         ops.rs                -- broadcasting, compatibility
     ops/
-      mod.rs                  -- MlOp enum, MlOpError
+      mod.rs                  -- Op enum, OpError
       params.rs               -- per-op parameter structs
 
 backends/                     -- crate: backends
@@ -930,10 +930,10 @@ in `backends-cuda`. `unsafe` is confined to backend crates.
 
 | # | Decision | Rationale |
 |---|----------|-----------|
-| 1 | **Unified `Backend` trait with capability flags** | Avoids two parallel trait hierarchies. The executor branches on `MemoryModel` — one code path for explicit-memory backends, one for managed-memory runtimes. A backend can support multiple node kinds (e.g. CUDA handles both `Compute` and `MlOp` via cuBLAS/cuDNN). |
+| 1 | **Unified `Backend` trait with capability flags** | Avoids two parallel trait hierarchies. The executor branches on `MemoryModel` — one code path for explicit-memory backends, one for managed-memory runtimes. A backend can support multiple node kinds (e.g. CUDA handles both `Compute` and `Op` via cuBLAS/cuDNN). |
 | 2 | **`KernelDescriptor` is a trait, not an enum** | Open for extension. Each backend defines its own descriptor struct and downcasts. Adding a new backend never touches core code. |
 | 3 | **Rich `TensorType` with dynamic dims and layouts** | Enables graph-build-time validation of ML pipelines. Dynamic dims with symbolic names ensure consistency across the graph (all "batch" dims resolve to the same value at runtime). |
-| 4 | **Curated `MlOp` enum + `Custom` escape hatch** | Gives the engine a shared vocabulary for common ML ops so multiple backends can support the same op. The `Custom` variant ensures the catalog is never a bottleneck. |
+| 4 | **Curated `Op` enum + `Custom` escape hatch** | Gives the engine a shared vocabulary for common ML ops so multiple backends can support the same op. The `Custom` variant ensures the catalog is never a bottleneck. |
 | 5 | **`MlModel` nodes with `MlModelDescriptor`** | Allows wrapping entire pre-trained models (ONNX, TorchScript, TFLite) as single opaque nodes. The backend handles loading, session management, and execution — the engine just routes data. |
 | 6 | **Managed-memory backends use `&[u8]` / `Vec<u8>`** | ML runtimes manage their own device memory. Passing host bytes avoids forcing them into the engine's buffer management. The engine serialises/deserialises at the boundary. |
 | 7 | **BufferManager branches on `MemoryModel`** | Explicit backends get full alloc/upload/download lifecycle. Managed backends get pass-through of host bytes. Same executor loop, different data handling. |
@@ -955,7 +955,7 @@ in `backends-cuda`. `unsafe` is confined to backend crates.
 | **Config-file graphs** | YAML/JSON/TOML front-end constructs a `Graph` via the builder API. |
 | **Profiling** | Instrument executor with timing callbacks around dispatch and transfer. |
 | **Device-to-device transfer** | Add `Backend::transfer(src, dst, buffer)` for direct peer copies (CUDA P2P, DMA). |
-| **Training** | `MlOp` nodes gain a `backward()` path. The scheduler runs the graph forward, then in reverse for gradient computation. |
+| **Training** | `Op` nodes gain a `backward()` path. The scheduler runs the graph forward, then in reverse for gradient computation. |
 | **Graph optimisation** | Fusion passes (merge adjacent ops), constant folding, layout transposition insertion — all operate on the immutable `Graph` IR and produce a new optimised `Graph`. |
 | **Subgraphs** | A node can contain a nested `Graph`, enabling hierarchical composition and reuse. |
 

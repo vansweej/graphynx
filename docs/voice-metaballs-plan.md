@@ -6,7 +6,7 @@
 >
 > | Phase | Status |
 > |-------|--------|
-> | 0 — Op Catalog Refactor | 🔲 Not started |
+> | 0 — Op Catalog Refactor | ✅ Complete |
 > | 1 — Graph IR | 🔲 Not started |
 > | 2 — Synchronous Executor | 🔲 Not started |
 > | 3 — Signal Processing Ops + CPU Backend | 🔲 Not started |
@@ -63,58 +63,101 @@ runtime           (depends on graph-core + backends + backends-cpu + backends-cu
 
 ## Phase 0 — Op Catalog Refactor
 
-**Status:** 🔲 Not started  
+**Status:** ✅ Complete  
 **Branch:** `refactor/op-catalog`  
 **Goal:** Broaden the operation catalog from ML-specific to a general compute
 catalog. Change the backend dispatch interface to pass structured op descriptors.
 Pure refactoring — no new functionality.
 
+### Rationale
+
+The original `MlOp` name implied the catalog was ML-only. Signal processing
+operations (Phase 3: `Fft`, `Window`, `BandExtract`) have nothing to do with
+ML but need to live in the same catalog. Renaming to `Op` makes the catalog
+domain-agnostic. Simultaneously, `dispatch_ml_op(&str, ...)` was upgraded to
+`dispatch_op(&Op, ...)` — a typed reference — so backends have access to full
+operation parameters at dispatch time (fixing a design gap identified in the
+architecture review).
+
 ### Naming
 
-Rename `MlOp` → `Op`, `MlOpError` → `OpError`.
+| Before | After |
+|--------|-------|
+| `MlOp` | `Op` |
+| `MlOpError` | `OpError` |
+| `NodeKindTag::MlOp` | `NodeKindTag::Op` |
+| `dispatch_ml_op(&str, ...)` | `dispatch_op(&Op, ...)` |
+| `"Unsupported ML op"` | `"Unsupported op"` |
+| `core/src/ops/params.rs` | `core/src/ops/ml.rs` |
+| `docs/ml-op.md` | `docs/op-catalog.md` |
+
+### Execution steps
+
+```mermaid
+graph TD
+    A["1. Create branch<br/>refactor/op-catalog"] --> B["2. git mv params.rs → ml.rs<br/>update pub mod"]
+    B --> C["3. Rename MlOp → Op<br/>MlOpError → OpError<br/>in mod.rs + ml.rs"]
+    C --> D["4. Create signal.rs placeholder<br/>update core/src/lib.rs doc"]
+    D --> E["5. Update backends/src/lib.rs<br/>dispatch_op · NodeKindTag::Op<br/>error message · tests"]
+    E --> F["6. Update runtime tests<br/>+ playground"]
+    F --> G["7. Rename + rewrite<br/>docs/op-catalog.md"]
+    G --> H["8. Update all other docs<br/>ARCHITECTURE · AGENTS · README<br/>getting-started · backend-trait<br/>cuda-backend · architecture · shape"]
+    H --> I["9. Validate<br/>fmt · clippy · test · tarpaulin · doc"]
+```
 
 ### Steps
 
-1. **Rename enum and error type**
-   - `core/src/ops/mod.rs`: rename `MlOp` → `Op`, `MlOpError` → `OpError`
-   - Update all `impl` blocks, `match` arms, `name()`, `is_parameterless()`,
-     `is_custom()`, `is_spatial_2d()`, `Display`, doc comments
-   - Update `core/src/lib.rs` re-exports
+1. **Create branch** — `git checkout -b refactor/op-catalog`
 
-2. **Reorganise params into domain sub-modules**
-   - Rename `core/src/ops/params.rs` → `core/src/ops/ml.rs`
-   - All existing param structs stay in `ml.rs` unchanged
-   - Create `core/src/ops/signal.rs` — empty placeholder, `// Signal processing
-     params — populated in Phase 3`
-   - Update `mod.rs` to `pub mod ml; pub mod signal;` and re-export from both
+2. **Rename `params.rs` → `ml.rs`**
+   - `git mv core/src/ops/params.rs core/src/ops/ml.rs`
+   - `core/src/ops/mod.rs`: `pub mod params;` → `pub mod ml; pub mod signal;`
+   - Update `pub use` block: `params::` → `ml::`
+   - `core/src/ops/ml.rs`: `use super::MlOpError;` → `use super::OpError;`
+   - Validate: `cargo test -p graph-core`
 
-3. **Change backend dispatch signature**
-   - `backends/src/lib.rs`: change
-     ```rust
-     fn dispatch_ml_op(&self, _op_name: &str, _inputs: &[&[u8]], _outputs: &mut [Vec<u8>])
-     ```
-     to
-     ```rust
-     fn dispatch_op(&self, _op: &Op, _inputs: &[&[u8]], _outputs: &mut [Vec<u8>])
-     ```
-   - Add `use graph_core::ops::Op;` import (dependency already exists)
-   - Update the default implementation body and its `warn!` message
-   - Update `NodeKindTag`: add `NodeKindTag::Op` alongside existing tags, or
-     rename `NodeKindTag::MlOp` → `NodeKindTag::Op`
+3. **Rename enum and error type** in `core/src/ops/mod.rs`
+   - `pub enum MlOpError` → `pub enum OpError`
+   - `pub enum MlOp` → `pub enum Op`
+   - All `impl MlOp` → `impl Op`, all `impl fmt::Display for MlOp` → `impl fmt::Display for Op`
+   - All `MlOpError::Variant` → `OpError::Variant` in `ml.rs`
+   - All doc comments, doc-tests, test functions
+   - Validate: `cargo test -p graph-core` and `cargo test --doc -p graph-core`
 
-4. **Update downstream consumers**
-   - `backends-cuda/src/lib.rs`: update any `dispatch_ml_op` override to
-     `dispatch_op`
-   - `runtime/src/lib.rs`: no dispatch change needed (uses `dispatch_compute`)
-   - All test mocks that implement `Backend`: update method name and signature
+4. **Create `signal.rs` placeholder** and update `core/src/lib.rs` doc comment
 
-5. **Update documentation**
-   - Rename `docs/ml-op.md` → `docs/op-catalog.md`; update all content
-   - `ARCHITECTURE.md`: replace all `MlOp` references with `Op`
-   - `AGENTS.md`: update code examples
-   - `core/Cargo.toml` description: remove "ML-op" wording
+5. **Update `backends/src/lib.rs`**
+   - Add `use graph_core::ops::Op;`
+   - `NodeKindTag::MlOp` → `NodeKindTag::Op`
+   - `dispatch_ml_op(&str, ...)` → `dispatch_op(&Op, ...)`
+   - `warn!("dispatch_ml_op ...")` → `warn!("dispatch_op ...")`
+   - `BackendError::UnsupportedOp` display: `"Unsupported ML op"` → `"Unsupported op"`
+   - Update all tests: tag names, debug format strings, test function names
+   - Validate: `cargo test -p backends`
 
-6. **Validate**
+6. **Update downstream consumers**
+   - `runtime/tests/type_system_toy.rs`: `MlOp` → `Op`
+   - `playground/src/scratch.rs`: `MlOp` → `Op`, `ops::params::` → `ops::ml::`
+   - `backends-cuda/src/lib.rs`: comment update only (no dispatch override)
+   - Validate: `cargo test` (full workspace)
+
+7. **Rename and rewrite `docs/ml-op.md` → `docs/op-catalog.md`**
+   - `git mv docs/ml-op.md docs/op-catalog.md`
+   - Add migration note at top
+   - Update all `MlOp` → `Op`, `MlOpError` → `OpError`
+   - Add domain organisation mermaid diagram
+   - Add Signal domain section (Phase 3 placeholder)
+   - Add module organisation mermaid diagram
+
+8. **Update all other documentation**
+   - `ARCHITECTURE.md` — ~30 occurrences
+   - `AGENTS.md` — 2 occurrences
+   - `README.md` — 1 occurrence
+   - `docs/getting-started.md`, `docs/backend-trait.md`, `docs/cuda-backend.md`,
+     `docs/architecture.md`, `docs/tensor-type.md`, `docs/shape.md`
+   - `core/Cargo.toml` description
+
+9. **Validate**
    ```bash
    nix develop --command cargo fmt --check
    nix develop --command cargo clippy
@@ -127,21 +170,34 @@ Rename `MlOp` → `Op`, `MlOpError` → `OpError`.
 
 | File | Change |
 |------|--------|
-| `core/src/ops/mod.rs` | Rename enum + error, update all methods |
-| `core/src/ops/params.rs` → `core/src/ops/ml.rs` | Rename file |
+| `core/src/ops/mod.rs` | Rename enum + error, update all methods, tests, doc-tests |
+| `core/src/ops/params.rs` → `core/src/ops/ml.rs` | Git rename + update imports |
 | `core/src/ops/signal.rs` | New empty placeholder |
-| `core/src/lib.rs` | Update re-exports |
-| `backends/src/lib.rs` | Rename dispatch method + signature |
-| `backends-cuda/src/lib.rs` | Update dispatch override |
-| `docs/ml-op.md` → `docs/op-catalog.md` | Rename + update |
-| `ARCHITECTURE.md` | Replace `MlOp` throughout |
-| `AGENTS.md` | Update code examples |
+| `core/src/lib.rs` | Update module doc comment |
+| `core/Cargo.toml` | Update description field |
+| `backends/src/lib.rs` | Rename dispatch method + typed signature, `NodeKindTag`, error message, tests |
+| `backends-cuda/src/lib.rs` | Comment update only |
+| `runtime/tests/type_system_toy.rs` | Update `Op` imports and usage |
+| `playground/src/scratch.rs` | Update imports and usage |
+| `docs/ml-op.md` → `docs/op-catalog.md` | Git rename + full rewrite |
+| `ARCHITECTURE.md` | Replace `MlOp` throughout (~30 occurrences) |
+| `AGENTS.md` | Update 2 lines |
+| `README.md` | Update 1 line |
+| `docs/getting-started.md` | Update ~6 occurrences |
+| `docs/backend-trait.md` | Update 3 occurrences |
+| `docs/cuda-backend.md` | Update 2 occurrences |
+| `docs/architecture.md` | Update 6 occurrences |
+| `docs/tensor-type.md` | Update 1 cross-reference |
+| `docs/shape.md` | Update 1 cross-reference |
 
 ### Risk
 
-High churn — 1677 lines of tests in `ops/mod.rs` alone. All changes are
-mechanical but error-prone. Run `cargo test` after each sub-step, not just at
-the end.
+High churn — 261 occurrences of `MlOp`/`MlOpError` across `.rs` and `.md`
+files. All changes are mechanical but error-prone. Mitigations:
+
+- Execute as concentric ripple: definition site → consumers → docs
+- Run `cargo test` after each compilable sub-step
+- Use `grep -r MlOp` as a final check before committing
 
 ---
 

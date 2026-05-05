@@ -77,7 +77,7 @@ src/
   cuda_backend.rs     # CUDA implementation of the Backend trait
   dtype.rs            # DType scalar element type enum
   tensor_type.rs      # Tensor type system: Dim, Layout, TensorType, TensorTypeBuilder
-  ml_op.rs            # ML op catalog: MlOp enum and per-op parameter structs
+  ml_op.rs            # ML op catalog: Op enum and per-op parameter structs
   shape/
     mod.rs            # Shape struct, ShapeError, constructors, strides, reshape
     ops.rs            # Broadcasting and compatibility logic
@@ -147,14 +147,14 @@ println!("{}", image); // f32[batch, 3, 224, 224] NCHW @ cuda:0
 ### Describing ML operations
 
 ```rust
-use graphynx::ml_op::{MlOp, Conv2dParams, SoftmaxParams};
+use graphynx::ops::{Op, Conv2dParams, SoftmaxParams};
 
 // Parameterless activations
-let relu = MlOp::Relu;
+let relu = Op::Relu;
 println!("{}", relu); // "Relu"
 
 // Convolution — using the safe constructor
-let conv = MlOp::Conv2d(Conv2dParams::new(
+let conv = Op::Conv2d(Conv2dParams::new(
     [3, 3],   // kernel_size
     [1, 1],   // stride
     [1, 1],   // padding
@@ -164,7 +164,7 @@ let conv = MlOp::Conv2d(Conv2dParams::new(
 assert!(conv.is_spatial_2d());
 
 // Custom op — using the safe constructor
-let custom = MlOp::custom("my_fused_op", vec![/* backend-specific bytes */]).unwrap();
+let custom = Op::custom("my_fused_op", vec![/* backend-specific bytes */]).unwrap();
 assert!(custom.is_custom());
 ```
 
@@ -180,5 +180,5 @@ The Rust toolchain is pinned in `rust-toolchain.toml` to `stable 1.94.1`. Do not
 - [DType](dtype.md) — scalar element type system
 - [Shape Module](shape.md) — validated tensor shapes, broadcasting, reshape, and strides
 - [Tensor Type System](tensor-type.md) — `Dim`, `Layout`, `TensorType`, construction, compatibility, and display
-- [ML Op Catalog](ml-op.md) — `MlOp` enum, all parameter structs, query methods, and extension pattern
+- [Op Catalog](op-catalog.md) — `Op` enum, all parameter structs, query methods, and extension pattern
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — full long-term design plan

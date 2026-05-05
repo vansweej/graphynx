@@ -104,7 +104,7 @@ src/
         mod.rs                  # Shape struct, ShapeError, constructors, strides, reshape
         ops.rs                  # Broadcasting and compatibility logic
     ops/
-      mod.rs                    # MlOp enum, MlOpError, safe constructors
+      mod.rs                    # Op enum, OpError, safe constructors
       params.rs                 # per-op parameter structs
 build.rs                        # emits CUDA linker search paths for cargo
 kernel.cu                       # CUDA C source for the hello_kernel
