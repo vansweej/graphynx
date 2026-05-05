@@ -10,7 +10,7 @@
 > | 1 — Graph IR | ✅ Complete |
 > | 2 — Synchronous Executor | ✅ Complete |
 > | 3 — Signal Processing Ops + CPU Backend | ✅ Complete |
-> | 4 — nodemoss Integration (WAV input) | 🔲 Not started |
+> | 4 — nodemoss Integration (Synthetic Audio) | ✅ Complete |
 > | 5 — Live Audio Capture | 🔲 Not started |
 
 ---
@@ -54,7 +54,8 @@ backends          (depends on graph-core)
     ↑           ↑
 backends-cpu    backends-cuda   (depend on backends)
     ↑
-runtime           (depends on graph-core + backends + backends-cpu + backends-cuda)
+runtime           (depends on graph-core + backends + backends-cpu;
+                   backends-cuda is optional behind the "cuda" feature)
     ↑
 [nodemoss/examples/voice_metaballs]  (depends on runtime + rig-app)
 ```
@@ -732,14 +733,20 @@ pub struct CpuBackend {
 
 ---
 
-## Phase 4 — nodemoss Integration (WAV input)
+## Phase 4 — nodemoss Integration (Synthetic Audio)
 
-**Status:** 🔲 Not started  
-**Branch (in nodemoss):** `feat/voice-metaballs`  
-**Goal:** Fork the metaballs example into `voice_metaballs`. Depend on graphynx
-as a path library. Build the audio analysis graph at startup. Drive metaball
-animation from band energies. Use a WAV file for deterministic, reproducible
-results.
+**Status:** ✅ Complete  
+**Branch (in nodemoss):** `feat/voice-metaballs` (merged to `main`)  
+**Goal:** Add `examples/voice_metaballs` to nodemoss. Depend on graphynx as a
+path library. Build the audio analysis graph at startup. Drive metaball
+animation from band energies. Use deterministic additive synthesis instead of a
+WAV file — no binary assets, no `hound` dependency, reproducible across runs.
+
+> **Implementation note:** The original plan called for a WAV file source. During
+> implementation, synthetic audio generation was chosen instead: it avoids
+> committing binary fixtures, removes the `hound` dependency, and keeps the
+> example fully self-contained. The graphynx pipeline is identical; only the
+> audio source differs.
 
 ### Cross-project dependency
 
@@ -752,38 +759,23 @@ rig-math   = { path = "../../crates/math" }
 anyhow     = "1"
 log        = "0.4"
 env_logger = "0.11"
-bytemuck   = "1"
+bytemuck   = { version = "1", features = ["derive"] }
 
 # Graphynx — path dependency for co-located development
 graph-core   = { path = "../../../rustycuda/core" }
 backends     = { path = "../../../rustycuda/backends" }
 backends-cpu = { path = "../../../rustycuda/backends-cpu" }
 runtime      = { path = "../../../rustycuda/runtime" }
-hound        = "3"   # WAV loading
 ```
+
+Note: `runtime` is depended on without the `cuda` feature, so `backends-cuda`
+is not pulled in and no CUDA toolchain is required.
 
 ### Application state
 
 ```rust
-struct VoiceMetaballs {
-    // ── Graphynx pipeline ─────────────────────────────────────────────
-    executor:     Executor,
-
-    // ── Audio source (WAV frames, pre-sliced) ─────────────────────────
-    audio_frames: Vec<Vec<f32>>,   // 2048-sample frames from WAV
-    frame_index:  usize,
-
-    // ── Band energy targets (updated from graph output) ────────────────
-    target_low:   f32,
-    target_mid:   f32,
-    target_high:  f32,
-
-    // ── Smoothed values (updated at render rate) ───────────────────────
-    current_low:  f32,
-    current_mid:  f32,
-    current_high: f32,
-
-    // ── Existing metaballs infrastructure ─────────────────────────────
+struct VoiceMetaballsApp {
+    // Scene
     camera_node:    NodeId,
     camera_rig:     CameraRig,
     metaball_node:  NodeId,
@@ -791,46 +783,33 @@ struct VoiceMetaballs {
     pending_mesh:   Option<DynamicMeshData>,
     elapsed:        f64,
     triangle_count: u32,
-    debug_hud:      DebugHud,
+
+    // Audio / signal pipeline
+    preset:          VoicePreset,
+    executor:        Executor,
+    /// Smoothed band energies [low, mid, high] — render-side EMA.
+    smooth_energies: [f32; 3],
+    /// Accumulated audio phase (seconds) — keeps synthesis continuous.
+    audio_phase:     f32,
+
+    // HUD
+    debug_hud:     DebugHud,
+    hud_preset:    rig_app::rig_overlay::ElementId,
+    hud_energies:  rig_app::rig_overlay::ElementId,
+    hud_triangles: rig_app::rig_overlay::ElementId,
 }
 ```
 
-### Graph built at startup
+### Synthetic audio generation
 
-```rust
-fn build_audio_graph(preset: VoicePreset) -> Result<Graph> {
-    let params = preset.band_params();   // returns BandExtractParams
-    GraphBuilder::new()
-        .source("audio_frame", TensorType::f32_1d(2048))
-        .add_node("window")
-            .device("cpu")
-            .op(Op::Window(WindowParams { kind: WindowKind::Hann, size: 2048 }))
-            .input_from_source("audio_frame")
-            .output(TensorType::f32_1d(2048))
-            .done()
-        .add_node("fft")
-            .device("cpu")
-            .op(Op::Fft(FftParams {
-                size: 2048,
-                direction: FftDirection::Forward,
-                output: FftOutput::Magnitude,
-            }))
-            .input_from("window", 0)
-            .output(TensorType::f32_1d(1025))
-            .done()
-        .add_node("bands")
-            .device("cpu")
-            .op(Op::BandExtract(params))
-            .input_from("fft", 0)
-            .output(TensorType::f32_1d(3))
-            .stateful()
-            .done()
-        .sink("band_energies", TensorType::f32_1d(3))
-            .from("bands", 0)
-        .build()
-        .map_err(|e| anyhow::anyhow!("graph build failed: {e}"))
-}
-```
+Each frame, `synthesise_frame(preset, phase_offset)` produces `FFT_SIZE` (1024)
+samples of additive synthesis:
+
+- Harmonics of the fundamental (`f0`) with 1/n amplitude roll-off (sawtooth-like source).
+- Three formant resonances (Gaussian-shaped amplitude envelope in frequency).
+- A small white-noise floor for breathiness, generated with a deterministic LCG
+  (no `rand` dependency; reproducible across runs).
+- Normalised to `[-1, 1]` after mixing.
 
 ### Voice presets
 
@@ -838,106 +817,137 @@ fn build_audio_graph(preset: VoicePreset) -> Result<Graph> {
 enum VoicePreset { Male, Female, Neutral }
 
 impl VoicePreset {
-    fn band_params(&self) -> BandExtractParams {
-        let (low_hi, mid_lo, mid_hi) = match self {
-            // Male fundamental: 85–180 Hz → emphasise lower end of low band
-            VoicePreset::Male    => (250.0, 250.0, 1800.0),
-            // Female fundamental: 165–255 Hz → shift boundaries up
-            VoicePreset::Female  => (350.0, 350.0, 2200.0),
-            // Balanced
-            VoicePreset::Neutral => (300.0, 300.0, 2000.0),
-        };
-        BandExtractParams {
-            bands: vec![
-                BandDef { low_hz: 80.0,   high_hz: low_hi, label: "low".into() },
-                BandDef { low_hz: mid_lo, high_hz: mid_hi, label: "mid".into() },
-                BandDef { low_hz: mid_hi, high_hz: 6000.0, label: "high".into() },
-            ],
-            sample_rate_hz: 44100.0,
-            smoothing: 0.6,
+    /// Fundamental frequency in Hz.
+    fn fundamental_hz(self) -> f32 {
+        match self {
+            VoicePreset::Male    => 120.0,
+            VoicePreset::Female  => 220.0,
+            VoicePreset::Neutral => 170.0,
+        }
+    }
+
+    /// Formant centre frequencies in Hz (F1, F2, F3).
+    fn formants_hz(self) -> [f32; 3] {
+        match self {
+            VoicePreset::Male    => [700.0, 1_200.0, 2_500.0],
+            VoicePreset::Female  => [900.0, 1_800.0, 2_800.0],
+            VoicePreset::Neutral => [800.0, 1_500.0, 2_650.0],
         }
     }
 }
 ```
 
+### Graph built at startup (per preset)
+
+```rust
+fn build_pipeline(preset: VoicePreset) -> Result<Executor> {
+    let spectrum_len = FFT_SIZE / 2 + 1;   // FFT_SIZE = 1024
+
+    let graph = GraphBuilder::new()
+        .source("audio", TensorType::f32_1d(FFT_SIZE))
+        .add_node("window")
+            .device("cpu:0")
+            .op(Op::Window(WindowParams::new(WindowKind::Hann, FFT_SIZE)?))
+            .input_from_source("audio")
+            .output(TensorType::f32_1d(FFT_SIZE))
+            .done()
+        .add_node("fft")
+            .device("cpu:0")
+            .op(Op::Fft(FftParams::new(FFT_SIZE, FftDirection::Forward,
+                                       FftOutput::Magnitude)?))
+            .input_from("window", 0)
+            .output(TensorType::f32_1d(spectrum_len))
+            .done()
+        .add_node("bands")
+            .device("cpu:0")
+            .op(Op::BandExtract(BandExtractParams::new(bands, SAMPLE_RATE, 0.6)?))
+            .stateful()
+            .input_from("fft", 0)
+            .output(TensorType::f32_1d(3))
+            .done()
+        .sink("energies", TensorType::f32_1d(3))
+            .from("bands", 0)
+            .done()
+        .build()?;
+
+    let backend: Box<dyn Backend> = Box::new(CpuBackend::new("cpu:0"));
+    Executor::new(graph, vec![backend])
+}
+```
+
+### Frequency bands
+
+| Band | Range | Drives |
+|------|-------|--------|
+| Low  | 20–250 Hz | Orbit radii of balls 0 and 1 |
+| Mid  | 250–4 000 Hz | Orbit radii of balls 2 and 3 |
+| High | 4 000–20 000 Hz | ISO threshold (surface tension) |
+
 ### Animation mapping
 
 ```rust
-// Constants — tune during testing
-const BASE_ORBIT:     f32 = 3.0;
-const SENSITIVITY:    f32 = 4.0;   // scale band energy [0,1] → orbit delta
-const RESPONSIVENESS: f32 = 8.0;   // render-rate EMA speed (higher = tighter)
-const BASE_ISO:       f32 = 1.0;
-const ISO_SENSITIVITY:f32 = 0.4;
-
-fn animate_from_bands(&mut self, dt: f32) {
-    // Exponential approach to targets at render rate (~60 Hz)
-    let alpha = 1.0 - (-dt * RESPONSIVENESS).exp();
-    self.current_low  += (self.target_low  - self.current_low)  * alpha;
-    self.current_mid  += (self.target_mid  - self.current_mid)  * alpha;
-    self.current_high += (self.target_high - self.current_high) * alpha;
-}
+// Constants
+const RESPONSIVENESS: f32 = 8.0;  // render-rate EMA speed
+const ISO_BASE:        f32 = 1.0;
+const ISO_RANGE:       f32 = 0.6;
 
 // In update():
-// Balls 0,1 → low band (fundamental frequency)
-// Balls 2,3 → mid band (formants / vowel character)
-// iso_value → high band (consonants / brightness / surface tension)
-let orbit_0 = BASE_ORBIT + self.current_low * SENSITIVITY;
-let orbit_1 = BASE_ORBIT + self.current_low * SENSITIVITY * 0.85;
-let orbit_2 = BASE_ORBIT + self.current_mid * SENSITIVITY;
-let orbit_3 = BASE_ORBIT + self.current_mid * SENSITIVITY * 0.85;
-let iso     = BASE_ISO   + self.current_high * ISO_SENSITIVITY;
+let alpha = 1.0 - (-dt * RESPONSIVENESS).exp();
+for (i, &e) in raw_energies.iter().enumerate().take(3) {
+    smooth_energies[i] += alpha * (e - smooth_energies[i]);
+}
+
+let norm = |e: f32| (e / (e + 1.0)).min(1.0);
+let low  = norm(smooth_energies[0]);
+let mid  = norm(smooth_energies[1]);
+let high = norm(smooth_energies[2]);
+
+let r_low = 2.5 + low * 1.5;   // balls 0 & 1
+let r_mid = 2.5 + mid * 1.5;   // balls 2 & 3
+let iso   = ISO_BASE + high * ISO_RANGE;
 ```
 
 ### Keyboard controls
 
 | Key | Action |
 |-----|--------|
-| `1` | Switch to Male voice preset |
-| `2` | Switch to Female voice preset |
-| `3` | Switch to Neutral voice preset |
-| `F3` | Toggle overlay (existing) |
-| `F4` | Toggle wireframe (existing) |
-| `Escape` | Quit (existing) |
+| `1` | Switch to Male voice preset (rebuilds graph) |
+| `2` | Switch to Female voice preset (rebuilds graph) |
+| `3` | Switch to Neutral voice preset (rebuilds graph) |
+| `F3` | Toggle overlay |
+| `F4` | Toggle wireframe |
+| `Escape` | Quit |
 
-Switching preset rebuilds the graph and resets the executor.
+### Steps completed
 
-### Overlay additions
-
-Show current band energies and active preset in the debug HUD:
-```
-Preset: Male
-Low:  ████░░░░  0.42
-Mid:  ██░░░░░░  0.18
-High: █░░░░░░░  0.07
-```
-
-### Steps
-
-1. Copy `nodemoss/examples/metaballs/` → `nodemoss/examples/voice_metaballs/`
-2. Update `Cargo.toml` with graphynx path dependencies and `hound`
-3. Add `voice_metaballs` to nodemoss workspace `Cargo.toml`
-4. Implement `VoicePreset` enum and `band_params()` method
-5. Implement `build_audio_graph()` function
-6. In `init()`: load WAV, pre-slice into 2048-sample frames, build graph,
-   create `CpuBackend`, create `Executor`
-7. In `update()`: advance frame index, feed frame to executor, read band
-   energies, update targets, call `animate_from_bands()`
-8. Replace fixed Lissajous orbit radii with band-energy-modulated values
-9. Add keyboard handling for preset switching (rebuild graph on switch)
-10. Add band energy display to debug HUD
-11. Include `test_voice.wav` fixture in `examples/voice_metaballs/assets/`
-12. Test: build and run; visually verify balls respond to WAV content
-13. Validate: `cargo clippy`, `cargo build`
+1. Created `nodemoss/examples/voice_metaballs/Cargo.toml` with graphynx path deps
+2. Added `voice_metaballs` to nodemoss workspace `Cargo.toml`
+3. Made `backends-cuda` optional in `runtime/Cargo.toml` (behind `cuda` feature)
+   so `voice_metaballs` can depend on `runtime` without a CUDA toolchain
+4. Implemented `VoicePreset` enum with `fundamental_hz()` and `formants_hz()`
+5. Implemented `synthesise_frame()` — deterministic additive synthesis
+6. Implemented `build_pipeline()` using the fluent `GraphBuilder` API
+7. Implemented `Application` trait: `init`, `update`, `render`, `update_overlay`,
+   `on_window_event`
+8. Added keyboard handling for preset switching (rebuilds graph + resets EMA state)
+9. Added band energy and triangle count display to debug HUD
+10. Wrote 15 unit tests (presets, synthesis, pipeline, metaball field)
+11. Validated: `cargo test`, `cargo clippy -- -D warnings`, `cargo fmt --check`
+12. Merged `feat/voice-metaballs` → `main` in nodemoss
 
 ### Files touched (in nodemoss)
 
 | File | Change |
 |------|--------|
-| `Cargo.toml` | Add `voice_metaballs` workspace member |
+| `Cargo.toml` | Added `voice_metaballs` workspace member |
 | `examples/voice_metaballs/Cargo.toml` | New |
-| `examples/voice_metaballs/src/main.rs` | New (forked + modified) |
-| `examples/voice_metaballs/assets/test_voice.wav` | New fixture |
+| `examples/voice_metaballs/src/main.rs` | New (853 lines, 15 unit tests) |
+
+### Files touched (in graphynx)
+
+| File | Change |
+|------|--------|
+| `runtime/Cargo.toml` | `backends-cuda` made optional behind `cuda` feature; `demo` binary requires `--features cuda` |
 
 ---
 
@@ -1108,7 +1118,7 @@ Document in `docs/streaming-executor.md`:
 | 1 | `feat/graph-ir` | Graph data model + builder + DAG validation | None | Large — new subsystem |
 | 2 | `feat/executor` | Synchronous executor + `ExecutionState` | None | Large — new subsystem |
 | 3 | `feat/signal-ops` | FFT/Window/BandExtract + `backends-cpu` | `rustfft`, `hound` (dev) | Medium |
-| 4 | `feat/voice-metaballs` | Working visual demo (WAV input) | `hound`, cross-repo path | Medium |
+| 4 | `feat/voice-metaballs` | Working visual demo (synthetic audio) | Cross-repo path deps only | Medium |
 | 5 | `feat/audio-source` | Live mic input, ring buffer, WAV fallback | `cpal`, `alsa-lib` (nix) | Medium |
 
 ---

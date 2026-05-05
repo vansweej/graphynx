@@ -39,7 +39,7 @@ This repo is a **Cargo workspace** with five member crates rooted at the repo ro
   - Uses `rustfft` with a cached `FftPlanner<f32>` inside a `Mutex`
   - See `docs/signal-ops.md` for the full algorithm and graph-wiring guide
 - `backends-cuda/` — crate name `backends-cuda` — `CudaBackend`, `CudaBuffer`, `CudaKernelDesc`
-- `runtime/` — crate name `runtime` — `run_kernel` convenience API, `Executor`, `demo` binary, integration tests
+- `runtime/` — crate name `runtime` — `run_kernel` convenience API, `Executor`, integration tests; `demo` binary (requires `--features cuda`)
 
 Dependency graph:
 ```
@@ -48,10 +48,9 @@ graph-core
 backends           (depends on graph-core)
     ↑           ↑
 backends-cuda   backends-cpu   (both depend on backends)
-    ↑               ↑
-    └───────────────┘
-            ↑
-         runtime   (depends on graph-core + backends + backends-cuda + backends-cpu)
+                    ↑
+                 runtime   (depends on graph-core + backends + backends-cpu;
+                            backends-cuda is optional behind the "cuda" feature)
 ```
 
 CUDA build artifacts (`build.rs`, `kernel.cu`, `kernel.ptx`, `compile-kernel.sh`) live in `backends-cuda/`.

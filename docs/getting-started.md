@@ -39,8 +39,10 @@ script requires the Nix shell environment variables (`NVCC_WRAPPED`,
 
 ## Run the Demo
 
+The demo binary requires a CUDA-capable GPU. Pass `--features cuda` to enable it:
+
 ```bash
-nix develop --command cargo run --bin demo
+nix develop --command cargo run --bin demo --features cuda
 ```
 
 Expected output:
