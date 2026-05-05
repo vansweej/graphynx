@@ -8,8 +8,8 @@
 > |-------|--------|
 > | 0 — Op Catalog Refactor | ✅ Complete |
 > | 1 — Graph IR | ✅ Complete |
-> | 2 — Synchronous Executor | 🔲 Not started |
-> | 3 — Signal Processing Ops + CPU Backend | 🔲 Not started |
+> | 2 — Synchronous Executor | ✅ Complete |
+> | 3 — Signal Processing Ops + CPU Backend | ✅ Complete |
 > | 4 — nodemoss Integration (WAV input) | 🔲 Not started |
 > | 5 — Live Audio Capture | 🔲 Not started |
 
@@ -203,7 +203,7 @@ files. All changes are mechanical but error-prone. Mitigations:
 
 ## Phase 1 — Graph IR
 
-**Status:** 🔲 Not started  
+**Status:** ✅ Complete  
 **Branch:** `feat/graph-ir`  
 **Goal:** Implement the core graph data structure with typed source/sink ports,
 nodes, edges, a builder API, and DAG validation. No execution — this is purely
@@ -553,7 +553,7 @@ None — `runtime` already depends on `graph-core`, `backends`, and `bytemuck`.
 
 ## Phase 3 — Signal Processing Ops + CPU Backend
 
-**Status:** 🔲 Not started  
+**Status:** ✅ Complete  
 **Branch:** `feat/signal-ops`  
 **Goal:** Add `Op::Fft`, `Op::Window`, and `Op::BandExtract` to the catalog.
 Implement a new `backends-cpu` crate that dispatches these ops using `rustfft`.

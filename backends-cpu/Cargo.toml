@@ -1,0 +1,24 @@
+[package]
+name        = "backends-cpu"
+description = "Graphynx CPU backend — signal processing ops (FFT, windowing, band extraction)"
+version.workspace     = true
+edition.workspace     = true
+license.workspace     = true
+repository.workspace  = true
+
+[dependencies]
+backends    = { workspace = true }
+graph-core  = { workspace = true }
+bytemuck    = { workspace = true }
+log         = { workspace = true }
+num-complex = { workspace = true }
+rustfft     = { workspace = true }
+
+[dev-dependencies]
+bytemuck    = { workspace = true }
+graph-core  = { workspace = true }
+hound       = { workspace = true }
+runtime     = { workspace = true }
+
+[lints]
+workspace = true

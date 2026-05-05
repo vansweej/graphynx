@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "core",
     "backends",
+    "backends-cpu",
     "backends-cuda",
     "runtime",
     "playground",
@@ -16,15 +17,19 @@ repository   = "https://github.com/vansweej/graphynx"
 
 [workspace.dependencies]
 # External
-bytemuck   = { version = "1", features = ["derive"] }
-cudarc     = { version = "0.9", default-features = false, features = ["driver", "std"] }
-env_logger = "0.11"
-log        = "0.4"
-thiserror  = "2"
+bytemuck    = { version = "1", features = ["derive"] }
+cudarc      = { version = "0.9", default-features = false, features = ["driver", "std"] }
+env_logger  = "0.11"
+hound       = "3"
+log         = "0.4"
+num-complex = "0.4"
+rustfft     = "6"
+thiserror   = "2"
 
 # Workspace-internal
 graph-core    = { path = "core" }
 backends      = { path = "backends" }
+backends-cpu  = { path = "backends-cpu" }
 backends-cuda = { path = "backends-cuda" }
 runtime       = { path = "runtime" }
 
