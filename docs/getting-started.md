@@ -3,8 +3,7 @@
 ## Prerequisites
 
 - [Nix](https://nixos.org/download.html) with flakes enabled
-- NVIDIA GPU with installed driver (kernel module)
-- Host NVIDIA libraries (`libcuda.so.1`) accessible to the Nix environment
+- NVIDIA GPU with installed driver (kernel module) — **required only for the CUDA backend**
 
 ## Environment Setup
 
@@ -22,24 +21,26 @@ The shell hook automatically sets:
 ## Build
 
 ```bash
-cargo build              # Debug build
-cargo build --release    # Release build
+nix develop --command cargo build              # Debug build
+nix develop --command cargo build --release    # Release build
 ```
 
-## Compile the CUDA Kernel
+## Compile the CUDA Kernel (optional)
 
-Before running the binary, compile the PTX kernel:
+Only needed if you use the CUDA backend or run the demo binary:
 
 ```bash
-./compile-kernel.sh
+nix develop --command ./backends-cuda/compile-kernel.sh
 ```
 
-This compiles `kernel.cu` into `kernel.ptx` using `nvcc`. The script requires the Nix shell environment variables (`NVCC_WRAPPED`, `NVCC_HOST_COMPILER`, `NVCC_EXTRA_FLAGS`).
+This compiles `backends-cuda/kernel.cu` into `kernel.ptx` using `nvcc`. The
+script requires the Nix shell environment variables (`NVCC_WRAPPED`,
+`NVCC_HOST_COMPILER`, `NVCC_EXTRA_FLAGS`).
 
 ## Run the Demo
 
 ```bash
-cargo run
+nix develop --command cargo run --bin demo
 ```
 
 Expected output:
@@ -49,82 +50,133 @@ Input:  [3, 7, 1, 9, 4, 6, 2, 8, 5, 10]
 Output: [6, 14, 2, 18, 8, 12, 4, 16, 10, 20]
 ```
 
-The demo loads `kernel.ptx`, creates a CUDA backend on device 0, and runs a kernel that doubles each integer element.
+The demo loads `kernel.ptx`, creates a CUDA backend on device 0, and runs a
+kernel that doubles each integer element.
 
 ## Run Tests
 
 ```bash
-cargo test                # Run all tests
-cargo test <name>         # Run tests matching <name>
-cargo tarpaulin           # Code coverage report
+nix develop --command cargo test                # Run all tests
+nix develop --command cargo test <name>         # Run tests matching <name>
+nix develop --command cargo tarpaulin           # Code coverage report
 ```
 
 ## Lint and Format
 
 ```bash
-cargo clippy              # Lint checks
-cargo fmt                 # Format code
-cargo fmt --check         # Check formatting without writing
-cargo deny check          # License, advisory, and ban checks
+nix develop --command cargo clippy              # Lint checks
+nix develop --command cargo fmt                 # Format code
+nix develop --command cargo fmt --check         # Check formatting without writing
+nix develop --command cargo deny check          # License, advisory, and ban checks
 ```
 
-## Project Structure
+## Workspace Structure
 
 ```
-src/
-  lib.rs              # Crate root, run_kernel<T> convenience function
-  backend.rs          # Core traits: Backend, DeviceBuffer, KernelDescriptor
-  cuda_backend.rs     # CUDA implementation of the Backend trait
-  dtype.rs            # DType scalar element type enum
-  tensor_type.rs      # Tensor type system: Dim, Layout, TensorType, TensorTypeBuilder
-  ml_op.rs            # ML op catalog: Op enum and per-op parameter structs
-  shape/
-    mod.rs            # Shape struct, ShapeError, constructors, strides, reshape
-    ops.rs            # Broadcasting and compatibility logic
-  main.rs             # Binary entry point (CUDA demo)
-build.rs              # Build script (CUDA linker paths)
-kernel.cu             # CUDA kernel source
-compile-kernel.sh     # PTX compilation script
+graphynx/
+├── core/                   # graph-core — Op catalog · Graph IR · TensorType · Shape · DType
+├── backends/               # backends — Backend trait · BackendError · DeviceId
+├── backends-cpu/           # backends-cpu — CpuBackend (signal ops: Window · FFT · BandExtract)
+├── backends-cuda/          # backends-cuda — CudaBackend (PTX kernels)
+│   ├── kernel.cu           # CUDA C kernel source
+│   └── compile-kernel.sh   # PTX compilation script
+└── runtime/                # runtime — Executor · demo binary
+    └── src/executor/       # scheduler · buffer arena · handles · state
 ```
 
 ## Using as a Library
 
-Add to your `Cargo.toml`:
+Add the crates you need to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-graphynx = { path = "../path/to/graphynx" }
+graph-core    = { path = "../path/to/graphynx/core" }
+backends      = { path = "../path/to/graphynx/backends" }
+backends-cpu  = { path = "../path/to/graphynx/backends-cpu" }
+runtime       = { path = "../path/to/graphynx/runtime" }
 ```
 
-### Running a CUDA kernel
+### Building a signal processing graph
+
+```mermaid
+flowchart LR
+    A["Audio frame\nf32 × N"] -->|"Op::Window"| B["Windowed\nf32 × N"]
+    B -->|"Op::Fft"| C["Spectrum\nf32 × N/2+1"]
+    C -->|"Op::BandExtract"| D["Band energies\nf32 × B"]
+```
 
 ```rust
-use graphynx::cuda_backend::{CudaBackend, CudaKernelDesc};
+use graph_core::{
+    graph::GraphBuilder,
+    ops::{
+        Op,
+        signal::{WindowKind, WindowParams, FftDirection, FftOutput, FftParams,
+                 BandDef, BandExtractParams},
+    },
+    types::{DType, TensorType},
+};
+use backends::{Backend, DeviceId};
+use backends_cpu::CpuBackend;
+use runtime::executor::Executor;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let ptx = include_str!("path/to/kernel.ptx");
-    let backend = CudaBackend::new(0, ptx, "module_name")?;
+let n: usize = 1024;
+let sr: f32 = 44_100.0;
+let cpu = DeviceId::new("cpu:0");
 
-    let desc = CudaKernelDesc::new("kernel_func", [1, 1, 1], [N as u32, 1, 1]);
-    let input: Vec<i32> = vec![1, 2, 3, 4, 5];
-    let output: Vec<i32> = graphynx::run_kernel(&backend, &desc, &input)?;
+let mut b = GraphBuilder::new();
 
-    println!("{:?}", output);
-    Ok(())
-}
+let audio_src = b.add_source("audio", TensorType::vector(DType::F32, n).unwrap());
+
+let win_node = b.add_op_node(
+    Op::Window(WindowParams::new(WindowKind::Hann, n).unwrap()),
+    cpu.clone(),
+    vec![TensorType::vector(DType::F32, n).unwrap()],
+);
+
+let fft_node = b.add_op_node(
+    Op::Fft(FftParams::new(n, FftDirection::Forward, FftOutput::MagnitudeOneSided).unwrap()),
+    cpu.clone(),
+    vec![TensorType::vector(DType::F32, n / 2 + 1).unwrap()],
+);
+
+let bands = vec![
+    BandDef::new(20.0,    250.0,  "low").unwrap(),
+    BandDef::new(250.0,   4000.0, "mid").unwrap(),
+    BandDef::new(4000.0, 20000.0, "high").unwrap(),
+];
+let band_node = b.add_op_node(
+    Op::BandExtract(BandExtractParams::new(bands, sr, 0.6).unwrap()),
+    cpu.clone(),
+    vec![TensorType::vector(DType::F32, 3).unwrap()],
+);
+
+b.add_edge(audio_src, win_node,  0);
+b.add_edge(win_node,  fft_node,  0);
+b.add_edge(fft_node,  band_node, 0);
+b.add_sink("energies", band_node, 0);
+
+let graph = b.build().unwrap();
+let backend: Box<dyn Backend> = Box::new(CpuBackend::new(cpu));
+let mut exec = Executor::new(graph, vec![backend]).unwrap();
+
+// Run one frame
+let samples = vec![0.0_f32; n];
+exec.input("audio").unwrap().write("audio", bytemuck::cast_slice(&samples)).unwrap();
+exec.run().unwrap();
+let energies: &[f32] = exec.output("energies").unwrap().read().unwrap();
+println!("Band energies: {:?}", energies);
 ```
 
 ### Describing tensor types for graph edges
 
 ```rust
-use graphynx::tensor_type::{Dim, Layout, TensorType};
-use graphynx::backend::DeviceId;
-use graphynx::dtype::DType;
+use graph_core::types::{Dim, Layout, TensorType, DType};
+use backends::DeviceId;
 
 // Common shapes use the short constructors:
-let scalar   = TensorType::scalar(DType::F32);
-let vector   = TensorType::vector(DType::I32, 1024)?;
-let matrix   = TensorType::matrix(DType::F64, 512, 512)?;
+let scalar = TensorType::scalar(DType::F32);
+let vector = TensorType::vector(DType::F32, 1024).unwrap();
+let matrix = TensorType::matrix(DType::F64, 512, 512).unwrap();
 
 // Complex shapes use the builder:
 let image = TensorType::builder(DType::F32)
@@ -139,7 +191,8 @@ let image = TensorType::builder(DType::F32)
         "batch".into(), "channels".into(), "height".into(), "width".into(),
     ])
     .device(DeviceId::new("cuda:0"))
-    .build()?;
+    .build()
+    .unwrap();
 
 println!("{}", image); // f32[batch, 3, 224, 224] NCHW @ cuda:0
 ```
@@ -147,7 +200,7 @@ println!("{}", image); // f32[batch, 3, 224, 224] NCHW @ cuda:0
 ### Describing ML operations
 
 ```rust
-use graphynx::ops::{Op, Conv2dParams, SoftmaxParams};
+use graph_core::ops::{Op, ml::{Conv2dParams, SoftmaxParams}};
 
 // Parameterless activations
 let relu = Op::Relu;
@@ -170,15 +223,19 @@ assert!(custom.is_custom());
 
 ## Rust Toolchain
 
-The Rust toolchain is pinned in `rust-toolchain.toml` to `stable 1.94.1`. Do not change this without following the upgrade procedure documented in `AGENTS.md`.
+The Rust toolchain is pinned in `rust-toolchain.toml` to `stable 1.94.1`. Do
+not change this without following the upgrade procedure documented in `AGENTS.md`.
 
 ## Further Reading
 
 - [Architecture Overview](architecture.md) — layered design, data flow, and design principles
-- [Backend Trait System](backend-trait.md) — how the `Backend`, `DeviceBuffer`, and `KernelDescriptor` traits work
+- [Executor Guide](executor.md) — how the executor schedules and dispatches nodes
+- [Signal Ops Guide](signal-ops.md) — Window, FFT, BandExtract algorithms and graph wiring
+- [Graph IR](graph-ir.md) — GraphBuilder API and graph validation
+- [Backend Trait System](backend-trait.md) — `Backend`, `DeviceBuffer`, `KernelDescriptor`
 - [CUDA Backend](cuda-backend.md) — CUDA-specific implementation details
+- [Op Catalog](op-catalog.md) — `Op` enum, all parameter structs, query methods
 - [DType](dtype.md) — scalar element type system
-- [Shape Module](shape.md) — validated tensor shapes, broadcasting, reshape, and strides
-- [Tensor Type System](tensor-type.md) — `Dim`, `Layout`, `TensorType`, construction, compatibility, and display
-- [Op Catalog](op-catalog.md) — `Op` enum, all parameter structs, query methods, and extension pattern
+- [Shape Module](shape.md) — validated tensor shapes, broadcasting, reshape, strides
+- [Tensor Type System](tensor-type.md) — `Dim`, `Layout`, `TensorType`, construction, compatibility
 - [ARCHITECTURE.md](../ARCHITECTURE.md) — full long-term design plan
