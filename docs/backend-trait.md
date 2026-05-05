@@ -15,7 +15,7 @@ classDiagram
         +upload(host, dst) Result~()~
         +download(src, host) Result~()~
         +dispatch_compute(desc, inputs, outputs) Result~()~
-        +dispatch_ml_op(op_name, inputs, outputs) Result~()~
+        +dispatch_op(op_name, inputs, outputs) Result~()~
         +dispatch_ml_model(model_name, inputs, outputs) Result~()~
     }
 
@@ -58,7 +58,7 @@ These have default implementations that return `Err(BackendError::UnsupportedNod
 | Method | Purpose |
 |---|---|
 | `dispatch_compute` | Execute a raw compute kernel |
-| `dispatch_ml_op` | Execute a primitive ML operation |
+| `dispatch_op` | Execute a primitive ML operation |
 | `dispatch_ml_model` | Run whole-model inference |
 
 Backends override only the dispatch methods they support.
@@ -181,7 +181,7 @@ Tags the kinds of graph nodes a backend can execute:
 | Variant | Description |
 |---|---|
 | `Compute` | Raw compute kernel (PTX, SPIR-V, WGSL, native Rust) |
-| `MlOp` | Primitive ML operation from the curated catalog |
+| `Op` | Primitive ML operation from the curated catalog |
 | `MlModel` | Opaque pre-trained model (ONNX, TorchScript, TFLite) |
 
 ### BackendCaps

@@ -133,7 +133,7 @@ impl Backend for CudaBackend {
     fn capabilities(&self) -> BackendCaps {
         BackendCaps {
             memory: MemoryModel::Explicit,
-            // MlOp support (cuBLAS, cuDNN) is planned but not yet implemented.
+            // Op support (cuBLAS, cuDNN) is planned but not yet implemented.
             supported_kinds: vec![NodeKindTag::Compute],
         }
     }

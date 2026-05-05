@@ -254,5 +254,5 @@ It has zero GPU SDK dependencies and compiles in any environment.
 - [Shape Module](shape.md) — `Shape`, broadcasting, reshape validation, and stride computation
 - [DType](dtype.md) — scalar element type enum
 - [Backend Trait System](backend-trait.md) — `DeviceId` used for device placement
-- [ML Op Catalog](ml-op.md) — `MlOp` operations that consume `TensorType` tensors
+- [Op Catalog](op-catalog.md) — `Op` operations that consume `TensorType` tensors
 - [Architecture Overview](architecture.md) — where `TensorType` sits in the layered design

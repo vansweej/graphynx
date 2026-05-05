@@ -1,6 +1,6 @@
 use crate::types::shape::Shape;
 
-use super::MlOpError;
+use super::OpError;
 
 // ── Parameter structs ─────────────────────────────────────────────────────────
 
@@ -28,7 +28,7 @@ impl Conv2dParams {
     ///
     /// # Errors
     ///
-    /// Returns [`MlOpError`] if `kernel_size`, `stride`, or `dilation` contain
+    /// Returns [`OpError`] if `kernel_size`, `stride`, or `dilation` contain
     /// a zero, or if `groups` is zero. `padding` may contain zeros (no padding
     /// is valid).
     ///
@@ -48,24 +48,24 @@ impl Conv2dParams {
         padding: [usize; 2],
         dilation: [usize; 2],
         groups: usize,
-    ) -> Result<Self, MlOpError> {
+    ) -> Result<Self, OpError> {
         if kernel_size[0] == 0 || kernel_size[1] == 0 {
-            return Err(MlOpError::ZeroSpatialParam {
+            return Err(OpError::ZeroSpatialParam {
                 param: "kernel_size".to_string(),
             });
         }
         if stride[0] == 0 || stride[1] == 0 {
-            return Err(MlOpError::ZeroSpatialParam {
+            return Err(OpError::ZeroSpatialParam {
                 param: "stride".to_string(),
             });
         }
         if dilation[0] == 0 || dilation[1] == 0 {
-            return Err(MlOpError::ZeroSpatialParam {
+            return Err(OpError::ZeroSpatialParam {
                 param: "dilation".to_string(),
             });
         }
         if groups == 0 {
-            return Err(MlOpError::ZeroGroups);
+            return Err(OpError::ZeroGroups);
         }
         Ok(Conv2dParams {
             kernel_size,
@@ -118,7 +118,7 @@ impl LinearParams {
     ///
     /// # Errors
     ///
-    /// Returns [`MlOpError::ZeroFeatures`] if `in_features` or `out_features`
+    /// Returns [`OpError::ZeroFeatures`] if `in_features` or `out_features`
     /// is zero.
     ///
     /// # Examples
@@ -131,14 +131,14 @@ impl LinearParams {
     ///
     /// assert!(LinearParams::new(0, 256, true).is_err());
     /// ```
-    pub fn new(in_features: usize, out_features: usize, bias: bool) -> Result<Self, MlOpError> {
+    pub fn new(in_features: usize, out_features: usize, bias: bool) -> Result<Self, OpError> {
         if in_features == 0 {
-            return Err(MlOpError::ZeroFeatures {
+            return Err(OpError::ZeroFeatures {
                 param: "in_features".to_string(),
             });
         }
         if out_features == 0 {
-            return Err(MlOpError::ZeroFeatures {
+            return Err(OpError::ZeroFeatures {
                 param: "out_features".to_string(),
             });
         }
@@ -168,7 +168,7 @@ impl PoolParams {
     ///
     /// # Errors
     ///
-    /// Returns [`MlOpError::ZeroSpatialParam`] if `kernel_size` or `stride`
+    /// Returns [`OpError::ZeroSpatialParam`] if `kernel_size` or `stride`
     /// contain a zero. `padding` may contain zeros (no padding is valid).
     ///
     /// # Examples
@@ -185,14 +185,14 @@ impl PoolParams {
         kernel_size: [usize; 2],
         stride: [usize; 2],
         padding: [usize; 2],
-    ) -> Result<Self, MlOpError> {
+    ) -> Result<Self, OpError> {
         if kernel_size[0] == 0 || kernel_size[1] == 0 {
-            return Err(MlOpError::ZeroSpatialParam {
+            return Err(OpError::ZeroSpatialParam {
                 param: "kernel_size".to_string(),
             });
         }
         if stride[0] == 0 || stride[1] == 0 {
-            return Err(MlOpError::ZeroSpatialParam {
+            return Err(OpError::ZeroSpatialParam {
                 param: "stride".to_string(),
             });
         }
@@ -224,9 +224,9 @@ impl BatchNormParams {
     ///
     /// # Errors
     ///
-    /// - [`MlOpError::ZeroNumFeatures`] if `num_features == 0`.
-    /// - [`MlOpError::NonPositiveEps`] if `eps <= 0.0`.
-    /// - [`MlOpError::InvalidMomentum`] if `momentum` is outside `[0.0, 1.0)`.
+    /// - [`OpError::ZeroNumFeatures`] if `num_features == 0`.
+    /// - [`OpError::NonPositiveEps`] if `eps <= 0.0`.
+    /// - [`OpError::InvalidMomentum`] if `momentum` is outside `[0.0, 1.0)`.
     ///
     /// # Examples
     ///
@@ -240,16 +240,16 @@ impl BatchNormParams {
     /// assert!(BatchNormParams::new(64, -1.0, None).is_err());
     /// assert!(BatchNormParams::new(64, 1e-5, Some(1.0)).is_err());
     /// ```
-    pub fn new(num_features: usize, eps: f64, momentum: Option<f64>) -> Result<Self, MlOpError> {
+    pub fn new(num_features: usize, eps: f64, momentum: Option<f64>) -> Result<Self, OpError> {
         if num_features == 0 {
-            return Err(MlOpError::ZeroNumFeatures);
+            return Err(OpError::ZeroNumFeatures);
         }
         if eps <= 0.0 {
-            return Err(MlOpError::NonPositiveEps(eps));
+            return Err(OpError::NonPositiveEps(eps));
         }
         if let Some(m) = momentum {
             if !(0.0..1.0).contains(&m) {
-                return Err(MlOpError::InvalidMomentum(m));
+                return Err(OpError::InvalidMomentum(m));
             }
         }
         Ok(BatchNormParams {
@@ -276,9 +276,9 @@ impl LayerNormParams {
     ///
     /// # Errors
     ///
-    /// - [`MlOpError::InvalidNormalizedShape`] if `normalized_shape` is empty
+    /// - [`OpError::InvalidNormalizedShape`] if `normalized_shape` is empty
     ///   or contains a zero.
-    /// - [`MlOpError::NonPositiveEps`] if `eps <= 0.0`.
+    /// - [`OpError::NonPositiveEps`] if `eps <= 0.0`.
     ///
     /// # Examples
     ///
@@ -292,12 +292,12 @@ impl LayerNormParams {
     /// assert!(LayerNormParams::new(vec![0], 1e-12).is_err());
     /// assert!(LayerNormParams::new(vec![768], -1.0).is_err());
     /// ```
-    pub fn new(normalized_shape: Vec<usize>, eps: f64) -> Result<Self, MlOpError> {
+    pub fn new(normalized_shape: Vec<usize>, eps: f64) -> Result<Self, OpError> {
         if normalized_shape.is_empty() || normalized_shape.contains(&0) {
-            return Err(MlOpError::InvalidNormalizedShape);
+            return Err(OpError::InvalidNormalizedShape);
         }
         if eps <= 0.0 {
-            return Err(MlOpError::NonPositiveEps(eps));
+            return Err(OpError::NonPositiveEps(eps));
         }
         Ok(LayerNormParams {
             normalized_shape,
@@ -355,7 +355,7 @@ impl TransposeParams {
     ///
     /// # Errors
     ///
-    /// Returns [`MlOpError::InvalidPermutation`] if `perm` is empty or is not
+    /// Returns [`OpError::InvalidPermutation`] if `perm` is empty or is not
     /// a valid permutation of `0..perm.len()`.
     ///
     /// # Examples
@@ -370,10 +370,10 @@ impl TransposeParams {
     /// assert!(TransposeParams::new(vec![0, 0]).is_err());
     /// assert!(TransposeParams::new(vec![0, 2]).is_err());
     /// ```
-    pub fn new(perm: Vec<usize>) -> Result<Self, MlOpError> {
+    pub fn new(perm: Vec<usize>) -> Result<Self, OpError> {
         let len = perm.len();
         if len == 0 {
-            return Err(MlOpError::InvalidPermutation {
+            return Err(OpError::InvalidPermutation {
                 perm,
                 expected_len: 0,
             });
@@ -382,7 +382,7 @@ impl TransposeParams {
         let mut seen = vec![false; len];
         for &idx in &perm {
             if idx >= len || seen[idx] {
-                return Err(MlOpError::InvalidPermutation {
+                return Err(OpError::InvalidPermutation {
                     perm,
                     expected_len: len,
                 });
@@ -441,7 +441,7 @@ impl DropoutParams {
     ///
     /// # Errors
     ///
-    /// Returns [`MlOpError::InvalidDropoutP`] if `p` is outside `[0.0, 1.0)`.
+    /// Returns [`OpError::InvalidDropoutP`] if `p` is outside `[0.0, 1.0)`.
     ///
     /// # Examples
     ///
@@ -454,9 +454,9 @@ impl DropoutParams {
     /// assert!(DropoutParams::new(-0.1).is_err());
     /// assert!(DropoutParams::new(1.0).is_err());
     /// ```
-    pub fn new(p: f64) -> Result<Self, MlOpError> {
+    pub fn new(p: f64) -> Result<Self, OpError> {
         if !(0.0..1.0).contains(&p) {
-            return Err(MlOpError::InvalidDropoutP(p));
+            return Err(OpError::InvalidDropoutP(p));
         }
         Ok(DropoutParams { p })
     }

@@ -3,6 +3,8 @@ use std::any::Any;
 use log::warn;
 use thiserror::Error;
 
+use graph_core::ops::Op;
+
 pub use graph_core::types::device_id::{DeviceId, DeviceIdError};
 
 pub mod ml;
@@ -36,8 +38,8 @@ pub enum BackendError {
     #[error("Unsupported node kind")]
     UnsupportedNodeKind,
 
-    /// The backend does not support the requested `MlOp` variant.
-    #[error("Unsupported ML op")]
+    /// The backend does not support the requested `Op` variant.
+    #[error("Unsupported op")]
     UnsupportedOp,
 }
 
@@ -77,8 +79,8 @@ pub enum MemoryModel {
 pub enum NodeKindTag {
     /// Raw compute kernel (CUDA PTX, SPIR-V, WGSL, native Rust, …).
     Compute,
-    /// Primitive ML operation from the curated `MlOp` catalog.
-    MlOp,
+    /// Primitive operation from the curated `Op` catalog.
+    Op,
     /// Opaque pre-trained model (ONNX, TorchScript, TFLite, …).
     MlModel,
 }
@@ -189,18 +191,18 @@ pub trait Backend: Send + Sync {
         Err(BackendError::UnsupportedNodeKind)
     }
 
-    /// Execute a primitive ML operation from the curated catalog.
+    /// Execute a primitive operation from the curated catalog.
     ///
-    /// Called for `NodeKind::MlOp` nodes. `inputs` and `outputs` carry
+    /// Called for `NodeKind::Op` nodes. `inputs` and `outputs` carry
     /// raw host-side tensor bytes (used by managed-memory backends).
     /// The default implementation returns `Err(BackendError::UnsupportedNodeKind)`.
-    fn dispatch_ml_op(
+    fn dispatch_op(
         &self,
-        _op_name: &str,
+        _op: &Op,
         _inputs: &[&[u8]],
         _outputs: &mut [Vec<u8>],
     ) -> Result<(), BackendError> {
-        warn!("dispatch_ml_op not supported by backend '{}'", self.name());
+        warn!("dispatch_op not supported by backend '{}'", self.name());
         Err(BackendError::UnsupportedNodeKind)
     }
 
@@ -269,7 +271,7 @@ mod tests {
     #[test]
     fn backend_error_unsupported_op_display() {
         let err = BackendError::UnsupportedOp;
-        assert_eq!(format!("{err}"), "Unsupported ML op");
+        assert_eq!(format!("{err}"), "Unsupported op");
     }
 
     #[test]
@@ -389,10 +391,10 @@ mod tests {
     #[test]
     fn node_kind_tag_equality() {
         assert_eq!(NodeKindTag::Compute, NodeKindTag::Compute);
-        assert_eq!(NodeKindTag::MlOp, NodeKindTag::MlOp);
+        assert_eq!(NodeKindTag::Op, NodeKindTag::Op);
         assert_eq!(NodeKindTag::MlModel, NodeKindTag::MlModel);
-        assert_ne!(NodeKindTag::Compute, NodeKindTag::MlOp);
-        assert_ne!(NodeKindTag::MlOp, NodeKindTag::MlModel);
+        assert_ne!(NodeKindTag::Compute, NodeKindTag::Op);
+        assert_ne!(NodeKindTag::Op, NodeKindTag::MlModel);
     }
 
     #[test]
@@ -405,7 +407,7 @@ mod tests {
     #[test]
     fn node_kind_tag_debug() {
         assert_eq!(format!("{:?}", NodeKindTag::Compute), "Compute");
-        assert_eq!(format!("{:?}", NodeKindTag::MlOp), "MlOp");
+        assert_eq!(format!("{:?}", NodeKindTag::Op), "Op");
         assert_eq!(format!("{:?}", NodeKindTag::MlModel), "MlModel");
     }
 
@@ -426,7 +428,7 @@ mod tests {
     fn backend_caps_managed_memory() {
         let caps = BackendCaps {
             memory: MemoryModel::Managed,
-            supported_kinds: vec![NodeKindTag::MlOp, NodeKindTag::MlModel],
+            supported_kinds: vec![NodeKindTag::Op, NodeKindTag::MlModel],
         };
         assert!(matches!(caps.memory, MemoryModel::Managed));
         assert_eq!(caps.supported_kinds.len(), 2);
@@ -444,7 +446,7 @@ mod tests {
     // ── Mock backend for testing default trait methods ────────────────────
 
     /// A minimal mock backend that only implements the required trait methods.
-    /// Uses default implementations for `dispatch_compute`, `dispatch_ml_op`,
+    /// Uses default implementations for `dispatch_compute`, `dispatch_op`,
     /// and `dispatch_ml_model` to verify they return `UnsupportedNodeKind`.
     struct MockManagedBackend {
         device_id: DeviceId,
@@ -519,7 +521,7 @@ mod tests {
             Err(BackendError::NotApplicable)
         }
 
-        // dispatch_compute, dispatch_ml_op, dispatch_ml_model use defaults.
+        // dispatch_compute, dispatch_op, dispatch_ml_model use defaults.
     }
 
     #[test]
@@ -541,11 +543,11 @@ mod tests {
     }
 
     #[test]
-    fn default_dispatch_ml_op_returns_unsupported() {
+    fn default_dispatch_op_returns_unsupported() {
         let backend = MockManagedBackend::new();
         let input: &[u8] = &[1, 2, 3];
         let mut output = vec![vec![0u8; 3]];
-        let result = backend.dispatch_ml_op("relu", &[input], &mut output);
+        let result = backend.dispatch_op(&graph_core::ops::Op::Relu, &[input], &mut output);
         assert!(result.is_err());
         assert!(matches!(
             result.unwrap_err(),

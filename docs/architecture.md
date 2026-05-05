@@ -17,7 +17,7 @@ graph TB
         dtype["dtype.rs<br/>DType enum"]
         shape["shape/<br/>Shape · broadcasting · strides"]
         tensor_type["tensor_type.rs<br/>Dim · Layout · TensorType"]
-        ml_op["ml_op.rs<br/>MlOp catalog"]
+        ml_op["ml_op.rs<br/>Op catalog"]
     end
 
     subgraph "Backend Layer"
@@ -58,7 +58,7 @@ The type system describes tensor data flowing through the computation graph:
 - **`dtype.rs`** — `DType` enum: scalar element types (`F32`, `I32`, `U8`, …). `DTypeError` for safe `DType::custom()` construction. Zero dependencies.
 - **`shape/`** — `Shape` struct: validated tensor shape with broadcasting, reshape validation, stride computation, and compatibility checks. `ShapeError` for construction and transformation errors. Depends only on `tensor_type::Dim`. See [shape.md](shape.md) for full documentation.
 - **`tensor_type.rs`** — `Dim`, `Layout`, `TensorType`, `TensorTypeBuilder`: full tensor metadata including shape (via `Shape`), layout, optional device placement, and dimension names. Depends on `dtype`, `backend::DeviceId`, and `shape::Shape`. See [tensor-type.md](tensor-type.md) for full documentation.
-- **`ml_op.rs`** — `MlOp` enum: curated catalog of primitive ML operations (`Conv2d`, `MatMul`, `Relu`, …) and their parameter structs. `MlOpError` for safe construction. Depends on `shape::Shape`. See [ml-op.md](ml-op.md) for full documentation.
+- **`ml_op.rs`** — `Op` enum: curated catalog of primitive ML operations (`Conv2d`, `MatMul`, `Relu`, …) and their parameter structs. `OpError` for safe construction. Depends on `shape::Shape`. See [op-catalog.md](op-catalog.md) for full documentation.
 
 ## Module Dependency Graph
 
@@ -129,7 +129,7 @@ sequenceDiagram
 | `src/cuda_backend.rs` | ~373 | CUDA implementation: `CudaBackend`, `CudaBuffer`, `CudaKernelDesc`. |
 | `src/dtype.rs` | ~710 | `DType` enum with size, alignment, naming, category helpers, and `DTypeError` for safe `custom()` construction. |
 | `src/tensor_type.rs` | ~1850 | Tensor type system: `Dim`, `Layout`, `TensorType`, `TensorTypeBuilder`, `TensorTypeError`. |
-| `src/ml_op.rs` | ~2131 | ML op catalog: `MlOp` enum, all per-op parameter structs, `MlOpError`, and safe constructors. |
+| `src/ml_op.rs` | ~2131 | ML op catalog: `Op` enum, all per-op parameter structs, `OpError`, and safe constructors. |
 | `src/shape/mod.rs` | ~862 | `Shape` struct: validated tensor shape, constructors, accessors, reshape validation, stride computation. `ShapeError`. |
 | `src/shape/ops.rs` | ~380 | Broadcasting (`broadcast_with`) and compatibility (`is_compatible_with`) logic for `Shape`. |
 | `src/main.rs` | ~43 | Binary demo: loads PTX, runs `hello_kernel` on GPU. |
@@ -141,10 +141,10 @@ sequenceDiagram
 
 1. **Zero backend dependencies in the core layer** — `backend.rs`, `dtype.rs`, `shape/`, and `tensor_type.rs` compile without any GPU SDK.
 2. **All unsafe confined to backend implementations** — the core library is 100% safe Rust.
-3. **Invalid states are unrepresentable** — `TensorType` uses private fields and validated constructors; there is no way to construct a `TensorType` with a zero dimension, mismatched dim names, or a wrong-rank image layout. `Shape` enforces no `Fixed(0)` or `Symbolic("")`. `DeviceId`, `DType::custom()`, and all `MlOp` param structs use safe constructors with dedicated error types.
+3. **Invalid states are unrepresentable** — `TensorType` uses private fields and validated constructors; there is no way to construct a `TensorType` with a zero dimension, mismatched dim names, or a wrong-rank image layout. `Shape` enforces no `Fixed(0)` or `Symbolic("")`. `DeviceId`, `DType::custom()`, and all `Op` param structs use safe constructors with dedicated error types.
 4. **Byte-oriented backend interface** — the `Backend` trait operates on `&[u8]` and `Box<dyn DeviceBuffer>`. Type erasure happens at the `run_kernel` boundary via `bytemuck`.
 5. **Trait-based extensibility** — `KernelDescriptor` is a trait (not an enum), so new kernel descriptor types can be added without modifying core code.
-6. **Capability-based dispatch** — `BackendCaps` declares what a backend supports (`Compute`, `MlOp`, `MlModel`) and its memory model (`Explicit` or `Managed`).
+6. **Capability-based dispatch** — `BackendCaps` declares what a backend supports (`Compute`, `Op`, `MlModel`) and its memory model (`Explicit` or `Managed`).
 
 ## Tensor Type System
 
@@ -177,7 +177,7 @@ See [tensor-type.md](tensor-type.md) for the full API reference.
 See [ARCHITECTURE.md](../ARCHITECTURE.md) in the repository root for the full long-term plan, including:
 
 - Graph IR with builder pattern (nodes, edges, `GraphBuilder`)
-- ML operation catalog (`MlOp` enum) ✓ **implemented** — see [ml-op.md](ml-op.md)
+- ML operation catalog (`Op` enum) ✓ **implemented** — see [op-catalog.md](op-catalog.md)
 - Execution layer (scheduler, buffer manager, executor)
 - Multiple backend implementations (CPU, OpenCL, ONNX Runtime, etc.)
 - Feature-gated backend compilation
