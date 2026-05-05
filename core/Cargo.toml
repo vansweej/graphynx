@@ -1,6 +1,6 @@
 [package]
 name        = "graph-core"
-description = "Backend-agnostic types and ML-op catalog for graphynx"
+description = "Backend-agnostic types and operation catalog for graphynx"
 version.workspace     = true
 edition.workspace     = true
 license.workspace     = true

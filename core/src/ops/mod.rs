@@ -2,14 +2,15 @@ use std::fmt;
 
 use thiserror::Error;
 
-pub mod params;
+pub mod ml;
+pub mod signal;
 
-pub use params::{
+pub use ml::{
     BatchNormParams, ConcatParams, Conv2dParams, DropoutParams, FlattenParams, LayerNormParams,
     LinearParams, MatMulParams, PoolParams, ReshapeParams, SoftmaxParams, TransposeParams,
 };
 
-// ── MlOpError ─────────────────────────────────────────────────────────────────
+// ── OpError ─────────────────────────────────────────────────────────────────
 
 /// Errors produced when constructing ML operation parameters through safe
 /// constructors.
@@ -17,7 +18,7 @@ pub use params::{
 /// Every variant carries enough context for the caller to understand exactly
 /// what invariant was violated.
 #[derive(Debug, Error, Clone, PartialEq)]
-pub enum MlOpError {
+pub enum OpError {
     /// A spatial dimension parameter (kernel size, stride, dilation) was zero.
     /// All spatial parameters must be >= 1.
     #[error("{param} must be > 0, got 0")]
@@ -71,7 +72,7 @@ pub enum MlOpError {
     EmptyCustomName,
 }
 
-// ── MlOp ─────────────────────────────────────────────────────────────────────
+// ── Op ─────────────────────────────────────────────────────────────────────
 
 /// Curated catalog of primitive ML operations.
 ///
@@ -83,28 +84,28 @@ pub enum MlOpError {
 ///
 /// | Category | Variants |
 /// |---|---|
-/// | Linear algebra | [`MatMul`](MlOp::MatMul), [`Linear`](MlOp::Linear) |
-/// | Convolution | [`Conv2d`](MlOp::Conv2d) |
-/// | Activation | [`Relu`](MlOp::Relu), [`Sigmoid`](MlOp::Sigmoid), [`Tanh`](MlOp::Tanh), [`Gelu`](MlOp::Gelu), [`Softmax`](MlOp::Softmax) |
-/// | Normalisation | [`BatchNorm`](MlOp::BatchNorm), [`LayerNorm`](MlOp::LayerNorm) |
-/// | Pooling | [`MaxPool2d`](MlOp::MaxPool2d), [`AvgPool2d`](MlOp::AvgPool2d) |
-/// | Shape | [`Reshape`](MlOp::Reshape), [`Transpose`](MlOp::Transpose), [`Concat`](MlOp::Concat), [`Flatten`](MlOp::Flatten) |
-/// | Regularisation | [`Dropout`](MlOp::Dropout) |
-/// | Element-wise | [`Add`](MlOp::Add), [`Mul`](MlOp::Mul) |
-/// | Escape hatch | [`Custom`](MlOp::Custom) |
+/// | Linear algebra | [`MatMul`](Op::MatMul), [`Linear`](Op::Linear) |
+/// | Convolution | [`Conv2d`](Op::Conv2d) |
+/// | Activation | [`Relu`](Op::Relu), [`Sigmoid`](Op::Sigmoid), [`Tanh`](Op::Tanh), [`Gelu`](Op::Gelu), [`Softmax`](Op::Softmax) |
+/// | Normalisation | [`BatchNorm`](Op::BatchNorm), [`LayerNorm`](Op::LayerNorm) |
+/// | Pooling | [`MaxPool2d`](Op::MaxPool2d), [`AvgPool2d`](Op::AvgPool2d) |
+/// | Shape | [`Reshape`](Op::Reshape), [`Transpose`](Op::Transpose), [`Concat`](Op::Concat), [`Flatten`](Op::Flatten) |
+/// | Regularisation | [`Dropout`](Op::Dropout) |
+/// | Element-wise | [`Add`](Op::Add), [`Mul`](Op::Mul) |
+/// | Escape hatch | [`Custom`](Op::Custom) |
 ///
 /// # Extension
 ///
-/// For any operation not covered by the catalog use [`MlOp::Custom`]. The
+/// For any operation not covered by the catalog use [`Op::Custom`]. The
 /// `name` string is a backend-interpreted identifier and `params` carries
 /// serialised (e.g. JSON or binary) operation parameters.
 ///
 /// # Examples
 ///
 /// ```
-/// use graph_core::ops::{MlOp, Conv2dParams, SoftmaxParams};
+/// use graph_core::ops::{Op, Conv2dParams, SoftmaxParams};
 ///
-/// let conv = MlOp::Conv2d(Conv2dParams {
+/// let conv = Op::Conv2d(Conv2dParams {
 ///     kernel_size: [3, 3],
 ///     stride:      [1, 1],
 ///     padding:     [1, 1],
@@ -114,15 +115,15 @@ pub enum MlOpError {
 /// assert_eq!(conv.name(), "Conv2d");
 /// assert!(!conv.is_parameterless());
 ///
-/// let relu = MlOp::Relu;
+/// let relu = Op::Relu;
 /// assert_eq!(relu.name(), "Relu");
 /// assert!(relu.is_parameterless());
 ///
-/// let softmax = MlOp::Softmax(SoftmaxParams { axis: -1 });
+/// let softmax = Op::Softmax(SoftmaxParams { axis: -1 });
 /// assert_eq!(softmax.name(), "Softmax");
 /// ```
 #[derive(Clone, Debug, PartialEq)]
-pub enum MlOp {
+pub enum Op {
     // ── Linear algebra ───────────────────────────────────────────────────
     /// General matrix multiplication: `C = op(A) · op(B)`.
     MatMul(MatMulParams),
@@ -191,104 +192,104 @@ pub enum MlOp {
     },
 }
 
-impl MlOp {
+impl Op {
     // ── Constructors ─────────────────────────────────────────────────────
 
-    /// Construct a [`MlOp::Custom`] operation, rejecting empty names.
+    /// Construct a [`Op::Custom`] operation, rejecting empty names.
     ///
     /// # Errors
     ///
-    /// Returns [`MlOpError::EmptyCustomName`] if `name` is empty.
+    /// Returns [`OpError::EmptyCustomName`] if `name` is empty.
     ///
     /// # Examples
     ///
     /// ```
-    /// use graph_core::ops::MlOp;
+    /// use graph_core::ops::Op;
     ///
-    /// assert!(MlOp::custom("my_op", vec![]).is_ok());
-    /// assert!(MlOp::custom("", vec![]).is_err());
+    /// assert!(Op::custom("my_op", vec![]).is_ok());
+    /// assert!(Op::custom("", vec![]).is_err());
     /// ```
-    pub fn custom(name: impl Into<String>, params: Vec<u8>) -> Result<Self, MlOpError> {
+    pub fn custom(name: impl Into<String>, params: Vec<u8>) -> Result<Self, OpError> {
         let n = name.into();
         if n.is_empty() {
-            Err(MlOpError::EmptyCustomName)
+            Err(OpError::EmptyCustomName)
         } else {
-            Ok(MlOp::Custom { name: n, params })
+            Ok(Op::Custom { name: n, params })
         }
     }
 
     /// Human-readable name for the operation.
     ///
-    /// For [`MlOp::Custom`] this returns the user-supplied `name` string.
+    /// For [`Op::Custom`] this returns the user-supplied `name` string.
     ///
     /// # Examples
     ///
     /// ```
-    /// use graph_core::ops::{MlOp, MatMulParams};
+    /// use graph_core::ops::{Op, MatMulParams};
     ///
-    /// assert_eq!(MlOp::Relu.name(), "Relu");
-    /// assert_eq!(MlOp::MatMul(MatMulParams { transpose_a: false, transpose_b: false }).name(), "MatMul");
-    /// assert_eq!(MlOp::Custom { name: "my_op".into(), params: vec![] }.name(), "my_op");
+    /// assert_eq!(Op::Relu.name(), "Relu");
+    /// assert_eq!(Op::MatMul(MatMulParams { transpose_a: false, transpose_b: false }).name(), "MatMul");
+    /// assert_eq!(Op::Custom { name: "my_op".into(), params: vec![] }.name(), "my_op");
     /// ```
     pub fn name(&self) -> &str {
         match self {
-            MlOp::MatMul(_) => "MatMul",
-            MlOp::Linear(_) => "Linear",
-            MlOp::Conv2d(_) => "Conv2d",
-            MlOp::Relu => "Relu",
-            MlOp::Sigmoid => "Sigmoid",
-            MlOp::Tanh => "Tanh",
-            MlOp::Gelu => "Gelu",
-            MlOp::Softmax(_) => "Softmax",
-            MlOp::BatchNorm(_) => "BatchNorm",
-            MlOp::LayerNorm(_) => "LayerNorm",
-            MlOp::MaxPool2d(_) => "MaxPool2d",
-            MlOp::AvgPool2d(_) => "AvgPool2d",
-            MlOp::Reshape(_) => "Reshape",
-            MlOp::Transpose(_) => "Transpose",
-            MlOp::Concat(_) => "Concat",
-            MlOp::Flatten(_) => "Flatten",
-            MlOp::Dropout(_) => "Dropout",
-            MlOp::Add => "Add",
-            MlOp::Mul => "Mul",
-            MlOp::Custom { name, .. } => name.as_str(),
+            Op::MatMul(_) => "MatMul",
+            Op::Linear(_) => "Linear",
+            Op::Conv2d(_) => "Conv2d",
+            Op::Relu => "Relu",
+            Op::Sigmoid => "Sigmoid",
+            Op::Tanh => "Tanh",
+            Op::Gelu => "Gelu",
+            Op::Softmax(_) => "Softmax",
+            Op::BatchNorm(_) => "BatchNorm",
+            Op::LayerNorm(_) => "LayerNorm",
+            Op::MaxPool2d(_) => "MaxPool2d",
+            Op::AvgPool2d(_) => "AvgPool2d",
+            Op::Reshape(_) => "Reshape",
+            Op::Transpose(_) => "Transpose",
+            Op::Concat(_) => "Concat",
+            Op::Flatten(_) => "Flatten",
+            Op::Dropout(_) => "Dropout",
+            Op::Add => "Add",
+            Op::Mul => "Mul",
+            Op::Custom { name, .. } => name.as_str(),
         }
     }
 
     /// Returns `true` if this operation carries no parameters.
     ///
-    /// The parameterless variants are: [`Relu`](MlOp::Relu),
-    /// [`Sigmoid`](MlOp::Sigmoid), [`Tanh`](MlOp::Tanh),
-    /// [`Gelu`](MlOp::Gelu), [`Add`](MlOp::Add), and [`Mul`](MlOp::Mul).
+    /// The parameterless variants are: [`Relu`](Op::Relu),
+    /// [`Sigmoid`](Op::Sigmoid), [`Tanh`](Op::Tanh),
+    /// [`Gelu`](Op::Gelu), [`Add`](Op::Add), and [`Mul`](Op::Mul).
     ///
     /// # Examples
     ///
     /// ```
-    /// use graph_core::ops::MlOp;
+    /// use graph_core::ops::Op;
     ///
-    /// assert!(MlOp::Relu.is_parameterless());
-    /// assert!(MlOp::Add.is_parameterless());
-    /// assert!(!MlOp::Custom { name: "x".into(), params: vec![] }.is_parameterless());
+    /// assert!(Op::Relu.is_parameterless());
+    /// assert!(Op::Add.is_parameterless());
+    /// assert!(!Op::Custom { name: "x".into(), params: vec![] }.is_parameterless());
     /// ```
     pub fn is_parameterless(&self) -> bool {
         matches!(
             self,
-            MlOp::Relu | MlOp::Sigmoid | MlOp::Tanh | MlOp::Gelu | MlOp::Add | MlOp::Mul
+            Op::Relu | Op::Sigmoid | Op::Tanh | Op::Gelu | Op::Add | Op::Mul
         )
     }
 
-    /// Returns `true` if this is a [`MlOp::Custom`] operation.
+    /// Returns `true` if this is a [`Op::Custom`] operation.
     ///
     /// # Examples
     ///
     /// ```
-    /// use graph_core::ops::MlOp;
+    /// use graph_core::ops::Op;
     ///
-    /// assert!(MlOp::Custom { name: "foo".into(), params: vec![] }.is_custom());
-    /// assert!(!MlOp::Relu.is_custom());
+    /// assert!(Op::Custom { name: "foo".into(), params: vec![] }.is_custom());
+    /// assert!(!Op::Relu.is_custom());
     /// ```
     pub fn is_custom(&self) -> bool {
-        matches!(self, MlOp::Custom { .. })
+        matches!(self, Op::Custom { .. })
     }
 
     /// Returns `true` if this operation is a 2-D spatial operation
@@ -297,39 +298,36 @@ impl MlOp {
     /// # Examples
     ///
     /// ```
-    /// use graph_core::ops::{MlOp, Conv2dParams, PoolParams};
+    /// use graph_core::ops::{Op, Conv2dParams, PoolParams};
     ///
-    /// assert!(MlOp::Conv2d(Conv2dParams {
+    /// assert!(Op::Conv2d(Conv2dParams {
     ///     kernel_size: [3, 3], stride: [1, 1],
     ///     padding: [0, 0], dilation: [1, 1], groups: 1,
     /// }).is_spatial_2d());
     ///
-    /// assert!(MlOp::MaxPool2d(PoolParams {
+    /// assert!(Op::MaxPool2d(PoolParams {
     ///     kernel_size: [2, 2], stride: [2, 2], padding: [0, 0],
     /// }).is_spatial_2d());
     ///
-    /// assert!(!MlOp::Relu.is_spatial_2d());
+    /// assert!(!Op::Relu.is_spatial_2d());
     /// ```
     pub fn is_spatial_2d(&self) -> bool {
-        matches!(
-            self,
-            MlOp::Conv2d(_) | MlOp::MaxPool2d(_) | MlOp::AvgPool2d(_)
-        )
+        matches!(self, Op::Conv2d(_) | Op::MaxPool2d(_) | Op::AvgPool2d(_))
     }
 }
 
 // ── Display ──────────────────────────────────────────────────────────────────
 
-impl fmt::Display for MlOp {
+impl fmt::Display for Op {
     /// Formats the op as its name, e.g. `"Relu"`, `"Conv2d"`, `"my_custom_op"`.
     ///
     /// # Examples
     ///
     /// ```
-    /// use graph_core::ops::MlOp;
+    /// use graph_core::ops::Op;
     ///
-    /// assert_eq!(MlOp::Relu.to_string(), "Relu");
-    /// assert_eq!(MlOp::Custom { name: "bar".into(), params: vec![] }.to_string(), "bar");
+    /// assert_eq!(Op::Relu.to_string(), "Relu");
+    /// assert_eq!(Op::Custom { name: "bar".into(), params: vec![] }.to_string(), "bar");
     /// ```
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.name())
@@ -345,11 +343,11 @@ mod tests {
 
     use super::*;
 
-    // ── MlOp::name() ─────────────────────────────────────────────────────
+    // ── Op::name() ─────────────────────────────────────────────────────
 
     #[test]
     fn name_matmul() {
-        let op = MlOp::MatMul(MatMulParams {
+        let op = Op::MatMul(MatMulParams {
             transpose_a: false,
             transpose_b: true,
         });
@@ -358,7 +356,7 @@ mod tests {
 
     #[test]
     fn name_linear() {
-        let op = MlOp::Linear(LinearParams {
+        let op = Op::Linear(LinearParams {
             in_features: 512,
             out_features: 256,
             bias: true,
@@ -368,7 +366,7 @@ mod tests {
 
     #[test]
     fn name_conv2d() {
-        let op = MlOp::Conv2d(Conv2dParams {
+        let op = Op::Conv2d(Conv2dParams {
             kernel_size: [3, 3],
             stride: [1, 1],
             padding: [1, 1],
@@ -380,33 +378,33 @@ mod tests {
 
     #[test]
     fn name_relu() {
-        assert_eq!(MlOp::Relu.name(), "Relu");
+        assert_eq!(Op::Relu.name(), "Relu");
     }
 
     #[test]
     fn name_sigmoid() {
-        assert_eq!(MlOp::Sigmoid.name(), "Sigmoid");
+        assert_eq!(Op::Sigmoid.name(), "Sigmoid");
     }
 
     #[test]
     fn name_tanh() {
-        assert_eq!(MlOp::Tanh.name(), "Tanh");
+        assert_eq!(Op::Tanh.name(), "Tanh");
     }
 
     #[test]
     fn name_gelu() {
-        assert_eq!(MlOp::Gelu.name(), "Gelu");
+        assert_eq!(Op::Gelu.name(), "Gelu");
     }
 
     #[test]
     fn name_softmax() {
-        let op = MlOp::Softmax(SoftmaxParams { axis: -1 });
+        let op = Op::Softmax(SoftmaxParams { axis: -1 });
         assert_eq!(op.name(), "Softmax");
     }
 
     #[test]
     fn name_batchnorm() {
-        let op = MlOp::BatchNorm(BatchNormParams {
+        let op = Op::BatchNorm(BatchNormParams {
             num_features: 64,
             eps: 1e-5,
             momentum: Some(0.1),
@@ -416,7 +414,7 @@ mod tests {
 
     #[test]
     fn name_layernorm() {
-        let op = MlOp::LayerNorm(LayerNormParams {
+        let op = Op::LayerNorm(LayerNormParams {
             normalized_shape: vec![768],
             eps: 1e-12,
         });
@@ -425,7 +423,7 @@ mod tests {
 
     #[test]
     fn name_maxpool2d() {
-        let op = MlOp::MaxPool2d(PoolParams {
+        let op = Op::MaxPool2d(PoolParams {
             kernel_size: [2, 2],
             stride: [2, 2],
             padding: [0, 0],
@@ -435,7 +433,7 @@ mod tests {
 
     #[test]
     fn name_avgpool2d() {
-        let op = MlOp::AvgPool2d(PoolParams {
+        let op = Op::AvgPool2d(PoolParams {
             kernel_size: [3, 3],
             stride: [1, 1],
             padding: [1, 1],
@@ -445,7 +443,7 @@ mod tests {
 
     #[test]
     fn name_reshape() {
-        let op = MlOp::Reshape(ReshapeParams {
+        let op = Op::Reshape(ReshapeParams {
             target_shape: Shape::new(vec![Dim::fixed(4).unwrap(), Dim::Dynamic]).unwrap(),
         });
         assert_eq!(op.name(), "Reshape");
@@ -453,7 +451,7 @@ mod tests {
 
     #[test]
     fn name_transpose() {
-        let op = MlOp::Transpose(TransposeParams {
+        let op = Op::Transpose(TransposeParams {
             perm: vec![0, 2, 1, 3],
         });
         assert_eq!(op.name(), "Transpose");
@@ -461,13 +459,13 @@ mod tests {
 
     #[test]
     fn name_concat() {
-        let op = MlOp::Concat(ConcatParams { axis: 1 });
+        let op = Op::Concat(ConcatParams { axis: 1 });
         assert_eq!(op.name(), "Concat");
     }
 
     #[test]
     fn name_flatten() {
-        let op = MlOp::Flatten(FlattenParams {
+        let op = Op::Flatten(FlattenParams {
             start_dim: 1,
             end_dim: -1,
         });
@@ -476,23 +474,23 @@ mod tests {
 
     #[test]
     fn name_dropout() {
-        let op = MlOp::Dropout(DropoutParams { p: 0.5 });
+        let op = Op::Dropout(DropoutParams { p: 0.5 });
         assert_eq!(op.name(), "Dropout");
     }
 
     #[test]
     fn name_add() {
-        assert_eq!(MlOp::Add.name(), "Add");
+        assert_eq!(Op::Add.name(), "Add");
     }
 
     #[test]
     fn name_mul() {
-        assert_eq!(MlOp::Mul.name(), "Mul");
+        assert_eq!(Op::Mul.name(), "Mul");
     }
 
     #[test]
     fn name_custom_uses_supplied_name() {
-        let op = MlOp::Custom {
+        let op = Op::Custom {
             name: "my_special_op".to_string(),
             params: vec![1, 2, 3],
         };
@@ -501,48 +499,48 @@ mod tests {
 
     #[test]
     fn name_custom_empty_params() {
-        let op = MlOp::Custom {
+        let op = Op::Custom {
             name: "no_params".to_string(),
             params: vec![],
         };
         assert_eq!(op.name(), "no_params");
     }
 
-    // ── MlOp::is_parameterless() ─────────────────────────────────────────
+    // ── Op::is_parameterless() ─────────────────────────────────────────
 
     #[test]
     fn is_parameterless_relu() {
-        assert!(MlOp::Relu.is_parameterless());
+        assert!(Op::Relu.is_parameterless());
     }
 
     #[test]
     fn is_parameterless_sigmoid() {
-        assert!(MlOp::Sigmoid.is_parameterless());
+        assert!(Op::Sigmoid.is_parameterless());
     }
 
     #[test]
     fn is_parameterless_tanh() {
-        assert!(MlOp::Tanh.is_parameterless());
+        assert!(Op::Tanh.is_parameterless());
     }
 
     #[test]
     fn is_parameterless_gelu() {
-        assert!(MlOp::Gelu.is_parameterless());
+        assert!(Op::Gelu.is_parameterless());
     }
 
     #[test]
     fn is_parameterless_add() {
-        assert!(MlOp::Add.is_parameterless());
+        assert!(Op::Add.is_parameterless());
     }
 
     #[test]
     fn is_parameterless_mul() {
-        assert!(MlOp::Mul.is_parameterless());
+        assert!(Op::Mul.is_parameterless());
     }
 
     #[test]
     fn not_parameterless_conv2d() {
-        let op = MlOp::Conv2d(Conv2dParams {
+        let op = Op::Conv2d(Conv2dParams {
             kernel_size: [1, 1],
             stride: [1, 1],
             padding: [0, 0],
@@ -554,12 +552,12 @@ mod tests {
 
     #[test]
     fn not_parameterless_softmax() {
-        assert!(!MlOp::Softmax(SoftmaxParams { axis: 0 }).is_parameterless());
+        assert!(!Op::Softmax(SoftmaxParams { axis: 0 }).is_parameterless());
     }
 
     #[test]
     fn not_parameterless_batchnorm() {
-        assert!(!MlOp::BatchNorm(BatchNormParams {
+        assert!(!Op::BatchNorm(BatchNormParams {
             num_features: 32,
             eps: 1e-5,
             momentum: None,
@@ -569,7 +567,7 @@ mod tests {
 
     #[test]
     fn not_parameterless_layernorm() {
-        assert!(!MlOp::LayerNorm(LayerNormParams {
+        assert!(!Op::LayerNorm(LayerNormParams {
             normalized_shape: vec![512],
             eps: 1e-5,
         })
@@ -578,7 +576,7 @@ mod tests {
 
     #[test]
     fn not_parameterless_matmul() {
-        assert!(!MlOp::MatMul(MatMulParams {
+        assert!(!Op::MatMul(MatMulParams {
             transpose_a: false,
             transpose_b: false,
         })
@@ -587,7 +585,7 @@ mod tests {
 
     #[test]
     fn not_parameterless_linear() {
-        assert!(!MlOp::Linear(LinearParams {
+        assert!(!Op::Linear(LinearParams {
             in_features: 10,
             out_features: 5,
             bias: false,
@@ -597,7 +595,7 @@ mod tests {
 
     #[test]
     fn not_parameterless_maxpool() {
-        assert!(!MlOp::MaxPool2d(PoolParams {
+        assert!(!Op::MaxPool2d(PoolParams {
             kernel_size: [2, 2],
             stride: [2, 2],
             padding: [0, 0],
@@ -607,7 +605,7 @@ mod tests {
 
     #[test]
     fn not_parameterless_avgpool() {
-        assert!(!MlOp::AvgPool2d(PoolParams {
+        assert!(!Op::AvgPool2d(PoolParams {
             kernel_size: [2, 2],
             stride: [2, 2],
             padding: [0, 0],
@@ -617,7 +615,7 @@ mod tests {
 
     #[test]
     fn not_parameterless_reshape() {
-        assert!(!MlOp::Reshape(ReshapeParams {
+        assert!(!Op::Reshape(ReshapeParams {
             target_shape: Shape::scalar(),
         })
         .is_parameterless());
@@ -625,17 +623,17 @@ mod tests {
 
     #[test]
     fn not_parameterless_transpose() {
-        assert!(!MlOp::Transpose(TransposeParams { perm: vec![1, 0] }).is_parameterless());
+        assert!(!Op::Transpose(TransposeParams { perm: vec![1, 0] }).is_parameterless());
     }
 
     #[test]
     fn not_parameterless_concat() {
-        assert!(!MlOp::Concat(ConcatParams { axis: 0 }).is_parameterless());
+        assert!(!Op::Concat(ConcatParams { axis: 0 }).is_parameterless());
     }
 
     #[test]
     fn not_parameterless_flatten() {
-        assert!(!MlOp::Flatten(FlattenParams {
+        assert!(!Op::Flatten(FlattenParams {
             start_dim: 0,
             end_dim: -1,
         })
@@ -644,23 +642,23 @@ mod tests {
 
     #[test]
     fn not_parameterless_dropout() {
-        assert!(!MlOp::Dropout(DropoutParams { p: 0.1 }).is_parameterless());
+        assert!(!Op::Dropout(DropoutParams { p: 0.1 }).is_parameterless());
     }
 
     #[test]
     fn not_parameterless_custom() {
-        assert!(!MlOp::Custom {
+        assert!(!Op::Custom {
             name: "x".into(),
             params: vec![],
         }
         .is_parameterless());
     }
 
-    // ── MlOp::is_custom() ────────────────────────────────────────────────
+    // ── Op::is_custom() ────────────────────────────────────────────────
 
     #[test]
     fn is_custom_true_for_custom() {
-        assert!(MlOp::Custom {
+        assert!(Op::Custom {
             name: "foo".into(),
             params: vec![42],
         }
@@ -669,12 +667,12 @@ mod tests {
 
     #[test]
     fn is_custom_false_for_relu() {
-        assert!(!MlOp::Relu.is_custom());
+        assert!(!Op::Relu.is_custom());
     }
 
     #[test]
     fn is_custom_false_for_conv2d() {
-        assert!(!MlOp::Conv2d(Conv2dParams {
+        assert!(!Op::Conv2d(Conv2dParams {
             kernel_size: [3, 3],
             stride: [1, 1],
             padding: [0, 0],
@@ -684,11 +682,11 @@ mod tests {
         .is_custom());
     }
 
-    // ── MlOp::is_spatial_2d() ────────────────────────────────────────────
+    // ── Op::is_spatial_2d() ────────────────────────────────────────────
 
     #[test]
     fn is_spatial_2d_conv2d() {
-        assert!(MlOp::Conv2d(Conv2dParams {
+        assert!(Op::Conv2d(Conv2dParams {
             kernel_size: [3, 3],
             stride: [1, 1],
             padding: [1, 1],
@@ -700,7 +698,7 @@ mod tests {
 
     #[test]
     fn is_spatial_2d_maxpool() {
-        assert!(MlOp::MaxPool2d(PoolParams {
+        assert!(Op::MaxPool2d(PoolParams {
             kernel_size: [2, 2],
             stride: [2, 2],
             padding: [0, 0],
@@ -710,7 +708,7 @@ mod tests {
 
     #[test]
     fn is_spatial_2d_avgpool() {
-        assert!(MlOp::AvgPool2d(PoolParams {
+        assert!(Op::AvgPool2d(PoolParams {
             kernel_size: [2, 2],
             stride: [2, 2],
             padding: [0, 0],
@@ -720,12 +718,12 @@ mod tests {
 
     #[test]
     fn not_spatial_2d_relu() {
-        assert!(!MlOp::Relu.is_spatial_2d());
+        assert!(!Op::Relu.is_spatial_2d());
     }
 
     #[test]
     fn not_spatial_2d_matmul() {
-        assert!(!MlOp::MatMul(MatMulParams {
+        assert!(!Op::MatMul(MatMulParams {
             transpose_a: false,
             transpose_b: false,
         })
@@ -734,12 +732,12 @@ mod tests {
 
     #[test]
     fn not_spatial_2d_add() {
-        assert!(!MlOp::Add.is_spatial_2d());
+        assert!(!Op::Add.is_spatial_2d());
     }
 
     #[test]
     fn not_spatial_2d_custom() {
-        assert!(!MlOp::Custom {
+        assert!(!Op::Custom {
             name: "special".into(),
             params: vec![],
         }
@@ -750,12 +748,12 @@ mod tests {
 
     #[test]
     fn display_relu() {
-        assert_eq!(MlOp::Relu.to_string(), "Relu");
+        assert_eq!(Op::Relu.to_string(), "Relu");
     }
 
     #[test]
     fn display_conv2d() {
-        let op = MlOp::Conv2d(Conv2dParams {
+        let op = Op::Conv2d(Conv2dParams {
             kernel_size: [3, 3],
             stride: [1, 1],
             padding: [0, 0],
@@ -767,7 +765,7 @@ mod tests {
 
     #[test]
     fn display_custom() {
-        let op = MlOp::Custom {
+        let op = Op::Custom {
             name: "my_op".to_string(),
             params: vec![],
         };
@@ -776,20 +774,20 @@ mod tests {
 
     #[test]
     fn display_add() {
-        assert_eq!(MlOp::Add.to_string(), "Add");
+        assert_eq!(Op::Add.to_string(), "Add");
     }
 
     // ── Clone / Debug ─────────────────────────────────────────────────────
 
     #[test]
     fn clone_and_eq_relu() {
-        let op = MlOp::Relu;
+        let op = Op::Relu;
         assert_eq!(op.clone(), op);
     }
 
     #[test]
     fn clone_and_eq_conv2d() {
-        let op = MlOp::Conv2d(Conv2dParams {
+        let op = Op::Conv2d(Conv2dParams {
             kernel_size: [3, 3],
             stride: [2, 2],
             padding: [1, 1],
@@ -801,7 +799,7 @@ mod tests {
 
     #[test]
     fn clone_and_eq_custom_with_params() {
-        let op = MlOp::Custom {
+        let op = Op::Custom {
             name: "test".into(),
             params: vec![0xDE, 0xAD, 0xBE, 0xEF],
         };
@@ -810,13 +808,13 @@ mod tests {
 
     #[test]
     fn debug_relu() {
-        let s = format!("{:?}", MlOp::Relu);
+        let s = format!("{:?}", Op::Relu);
         assert!(s.contains("Relu"));
     }
 
     #[test]
     fn debug_custom() {
-        let op = MlOp::Custom {
+        let op = Op::Custom {
             name: "my_custom".into(),
             params: vec![1, 2],
         };
@@ -954,7 +952,7 @@ mod tests {
 
     #[test]
     fn eq_two_identical_conv2d() {
-        let a = MlOp::Conv2d(Conv2dParams {
+        let a = Op::Conv2d(Conv2dParams {
             kernel_size: [3, 3],
             stride: [1, 1],
             padding: [0, 0],
@@ -967,16 +965,16 @@ mod tests {
 
     #[test]
     fn ne_different_ops() {
-        assert_ne!(MlOp::Relu, MlOp::Sigmoid);
+        assert_ne!(Op::Relu, Op::Sigmoid);
     }
 
     #[test]
     fn ne_different_custom_names() {
-        let a = MlOp::Custom {
+        let a = Op::Custom {
             name: "op_a".into(),
             params: vec![],
         };
-        let b = MlOp::Custom {
+        let b = Op::Custom {
             name: "op_b".into(),
             params: vec![],
         };
@@ -985,12 +983,12 @@ mod tests {
 
     #[test]
     fn eq_batchnorm_none_vs_some_momentum_differ() {
-        let a = MlOp::BatchNorm(BatchNormParams {
+        let a = Op::BatchNorm(BatchNormParams {
             num_features: 64,
             eps: 1e-5,
             momentum: None,
         });
-        let b = MlOp::BatchNorm(BatchNormParams {
+        let b = Op::BatchNorm(BatchNormParams {
             num_features: 64,
             eps: 1e-5,
             momentum: Some(0.1),
@@ -998,11 +996,11 @@ mod tests {
         assert_ne!(a, b);
     }
 
-    // ── MlOpError Display ────────────────────────────────────────────────
+    // ── OpError Display ────────────────────────────────────────────────
 
     #[test]
     fn error_display_zero_spatial_param() {
-        let e = MlOpError::ZeroSpatialParam {
+        let e = OpError::ZeroSpatialParam {
             param: "kernel_size".to_string(),
         };
         assert_eq!(e.to_string(), "kernel_size must be > 0, got 0");
@@ -1010,15 +1008,12 @@ mod tests {
 
     #[test]
     fn error_display_zero_groups() {
-        assert_eq!(
-            MlOpError::ZeroGroups.to_string(),
-            "groups must be > 0, got 0"
-        );
+        assert_eq!(OpError::ZeroGroups.to_string(), "groups must be > 0, got 0");
     }
 
     #[test]
     fn error_display_zero_features() {
-        let e = MlOpError::ZeroFeatures {
+        let e = OpError::ZeroFeatures {
             param: "in_features".to_string(),
         };
         assert_eq!(e.to_string(), "in_features must be > 0, got 0");
@@ -1027,40 +1022,40 @@ mod tests {
     #[test]
     fn error_display_zero_num_features() {
         assert_eq!(
-            MlOpError::ZeroNumFeatures.to_string(),
+            OpError::ZeroNumFeatures.to_string(),
             "num_features must be > 0, got 0"
         );
     }
 
     #[test]
     fn error_display_non_positive_eps() {
-        let e = MlOpError::NonPositiveEps(-1.0);
+        let e = OpError::NonPositiveEps(-1.0);
         assert_eq!(e.to_string(), "eps must be > 0, got -1");
     }
 
     #[test]
     fn error_display_invalid_momentum() {
-        let e = MlOpError::InvalidMomentum(1.5);
+        let e = OpError::InvalidMomentum(1.5);
         assert_eq!(e.to_string(), "momentum must be in [0.0, 1.0), got 1.5");
     }
 
     #[test]
     fn error_display_invalid_dropout_p() {
-        let e = MlOpError::InvalidDropoutP(-0.1);
+        let e = OpError::InvalidDropoutP(-0.1);
         assert_eq!(e.to_string(), "dropout p must be in [0.0, 1.0), got -0.1");
     }
 
     #[test]
     fn error_display_invalid_normalized_shape() {
         assert_eq!(
-            MlOpError::InvalidNormalizedShape.to_string(),
+            OpError::InvalidNormalizedShape.to_string(),
             "normalized_shape must be non-empty with all values > 0"
         );
     }
 
     #[test]
     fn error_display_invalid_permutation() {
-        let e = MlOpError::InvalidPermutation {
+        let e = OpError::InvalidPermutation {
             perm: vec![0, 0],
             expected_len: 2,
         };
@@ -1073,21 +1068,21 @@ mod tests {
     #[test]
     fn error_display_empty_custom_name() {
         assert_eq!(
-            MlOpError::EmptyCustomName.to_string(),
+            OpError::EmptyCustomName.to_string(),
             "Custom op name must not be empty"
         );
     }
 
     #[test]
     fn error_clone_and_eq() {
-        let e1 = MlOpError::ZeroGroups;
+        let e1 = OpError::ZeroGroups;
         let e2 = e1.clone();
         assert_eq!(e1, e2);
     }
 
     #[test]
     fn error_debug_format() {
-        let e = MlOpError::ZeroGroups;
+        let e = OpError::ZeroGroups;
         let s = format!("{:?}", e);
         assert!(s.contains("ZeroGroups"));
     }
@@ -1124,7 +1119,7 @@ mod tests {
         let err = Conv2dParams::new([0, 3], [1, 1], [0, 0], [1, 1], 1).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroSpatialParam {
+            OpError::ZeroSpatialParam {
                 param: "kernel_size".to_string(),
             }
         );
@@ -1135,7 +1130,7 @@ mod tests {
         let err = Conv2dParams::new([3, 0], [1, 1], [0, 0], [1, 1], 1).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroSpatialParam {
+            OpError::ZeroSpatialParam {
                 param: "kernel_size".to_string(),
             }
         );
@@ -1146,7 +1141,7 @@ mod tests {
         let err = Conv2dParams::new([3, 3], [0, 1], [0, 0], [1, 1], 1).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroSpatialParam {
+            OpError::ZeroSpatialParam {
                 param: "stride".to_string(),
             }
         );
@@ -1157,7 +1152,7 @@ mod tests {
         let err = Conv2dParams::new([3, 3], [1, 0], [0, 0], [1, 1], 1).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroSpatialParam {
+            OpError::ZeroSpatialParam {
                 param: "stride".to_string(),
             }
         );
@@ -1168,7 +1163,7 @@ mod tests {
         let err = Conv2dParams::new([3, 3], [1, 1], [0, 0], [0, 1], 1).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroSpatialParam {
+            OpError::ZeroSpatialParam {
                 param: "dilation".to_string(),
             }
         );
@@ -1179,7 +1174,7 @@ mod tests {
         let err = Conv2dParams::new([3, 3], [1, 1], [0, 0], [1, 0], 1).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroSpatialParam {
+            OpError::ZeroSpatialParam {
                 param: "dilation".to_string(),
             }
         );
@@ -1188,7 +1183,7 @@ mod tests {
     #[test]
     fn conv2d_new_zero_groups() {
         let err = Conv2dParams::new([3, 3], [1, 1], [0, 0], [1, 1], 0).unwrap_err();
-        assert_eq!(err, MlOpError::ZeroGroups);
+        assert_eq!(err, OpError::ZeroGroups);
     }
 
     // ── PoolParams::new() ────────────────────────────────────────────────
@@ -1212,7 +1207,7 @@ mod tests {
         let err = PoolParams::new([0, 2], [2, 2], [0, 0]).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroSpatialParam {
+            OpError::ZeroSpatialParam {
                 param: "kernel_size".to_string(),
             }
         );
@@ -1223,7 +1218,7 @@ mod tests {
         let err = PoolParams::new([2, 0], [2, 2], [0, 0]).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroSpatialParam {
+            OpError::ZeroSpatialParam {
                 param: "kernel_size".to_string(),
             }
         );
@@ -1234,7 +1229,7 @@ mod tests {
         let err = PoolParams::new([2, 2], [0, 2], [0, 0]).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroSpatialParam {
+            OpError::ZeroSpatialParam {
                 param: "stride".to_string(),
             }
         );
@@ -1245,7 +1240,7 @@ mod tests {
         let err = PoolParams::new([2, 2], [2, 0], [0, 0]).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroSpatialParam {
+            OpError::ZeroSpatialParam {
                 param: "stride".to_string(),
             }
         );
@@ -1272,7 +1267,7 @@ mod tests {
         let err = LinearParams::new(0, 256, true).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroFeatures {
+            OpError::ZeroFeatures {
                 param: "in_features".to_string(),
             }
         );
@@ -1283,7 +1278,7 @@ mod tests {
         let err = LinearParams::new(512, 0, true).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroFeatures {
+            OpError::ZeroFeatures {
                 param: "out_features".to_string(),
             }
         );
@@ -1295,7 +1290,7 @@ mod tests {
         let err = LinearParams::new(0, 0, false).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::ZeroFeatures {
+            OpError::ZeroFeatures {
                 param: "in_features".to_string(),
             }
         );
@@ -1326,37 +1321,37 @@ mod tests {
     #[test]
     fn batchnorm_new_zero_num_features() {
         let err = BatchNormParams::new(0, 1e-5, None).unwrap_err();
-        assert_eq!(err, MlOpError::ZeroNumFeatures);
+        assert_eq!(err, OpError::ZeroNumFeatures);
     }
 
     #[test]
     fn batchnorm_new_zero_eps() {
         let err = BatchNormParams::new(64, 0.0, None).unwrap_err();
-        assert_eq!(err, MlOpError::NonPositiveEps(0.0));
+        assert_eq!(err, OpError::NonPositiveEps(0.0));
     }
 
     #[test]
     fn batchnorm_new_negative_eps() {
         let err = BatchNormParams::new(64, -1e-5, None).unwrap_err();
-        assert_eq!(err, MlOpError::NonPositiveEps(-1e-5));
+        assert_eq!(err, OpError::NonPositiveEps(-1e-5));
     }
 
     #[test]
     fn batchnorm_new_momentum_one() {
         let err = BatchNormParams::new(64, 1e-5, Some(1.0)).unwrap_err();
-        assert_eq!(err, MlOpError::InvalidMomentum(1.0));
+        assert_eq!(err, OpError::InvalidMomentum(1.0));
     }
 
     #[test]
     fn batchnorm_new_momentum_negative() {
         let err = BatchNormParams::new(64, 1e-5, Some(-0.1)).unwrap_err();
-        assert_eq!(err, MlOpError::InvalidMomentum(-0.1));
+        assert_eq!(err, OpError::InvalidMomentum(-0.1));
     }
 
     #[test]
     fn batchnorm_new_momentum_greater_than_one() {
         let err = BatchNormParams::new(64, 1e-5, Some(1.5)).unwrap_err();
-        assert_eq!(err, MlOpError::InvalidMomentum(1.5));
+        assert_eq!(err, OpError::InvalidMomentum(1.5));
     }
 
     // ── LayerNormParams::new() ───────────────────────────────────────────
@@ -1377,31 +1372,31 @@ mod tests {
     #[test]
     fn layernorm_new_empty_shape() {
         let err = LayerNormParams::new(vec![], 1e-12).unwrap_err();
-        assert_eq!(err, MlOpError::InvalidNormalizedShape);
+        assert_eq!(err, OpError::InvalidNormalizedShape);
     }
 
     #[test]
     fn layernorm_new_zero_in_shape() {
         let err = LayerNormParams::new(vec![768, 0], 1e-12).unwrap_err();
-        assert_eq!(err, MlOpError::InvalidNormalizedShape);
+        assert_eq!(err, OpError::InvalidNormalizedShape);
     }
 
     #[test]
     fn layernorm_new_all_zeros_in_shape() {
         let err = LayerNormParams::new(vec![0], 1e-12).unwrap_err();
-        assert_eq!(err, MlOpError::InvalidNormalizedShape);
+        assert_eq!(err, OpError::InvalidNormalizedShape);
     }
 
     #[test]
     fn layernorm_new_zero_eps() {
         let err = LayerNormParams::new(vec![768], 0.0).unwrap_err();
-        assert_eq!(err, MlOpError::NonPositiveEps(0.0));
+        assert_eq!(err, OpError::NonPositiveEps(0.0));
     }
 
     #[test]
     fn layernorm_new_negative_eps() {
         let err = LayerNormParams::new(vec![768], -1.0).unwrap_err();
-        assert_eq!(err, MlOpError::NonPositiveEps(-1.0));
+        assert_eq!(err, OpError::NonPositiveEps(-1.0));
     }
 
     // ── DropoutParams::new() ─────────────────────────────────────────────
@@ -1427,19 +1422,19 @@ mod tests {
     #[test]
     fn dropout_new_one_is_invalid() {
         let err = DropoutParams::new(1.0).unwrap_err();
-        assert_eq!(err, MlOpError::InvalidDropoutP(1.0));
+        assert_eq!(err, OpError::InvalidDropoutP(1.0));
     }
 
     #[test]
     fn dropout_new_negative() {
         let err = DropoutParams::new(-0.1).unwrap_err();
-        assert_eq!(err, MlOpError::InvalidDropoutP(-0.1));
+        assert_eq!(err, OpError::InvalidDropoutP(-0.1));
     }
 
     #[test]
     fn dropout_new_greater_than_one() {
         let err = DropoutParams::new(1.5).unwrap_err();
-        assert_eq!(err, MlOpError::InvalidDropoutP(1.5));
+        assert_eq!(err, OpError::InvalidDropoutP(1.5));
     }
 
     // ── TransposeParams::new() ───────────────────────────────────────────
@@ -1473,7 +1468,7 @@ mod tests {
         let err = TransposeParams::new(vec![]).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::InvalidPermutation {
+            OpError::InvalidPermutation {
                 perm: vec![],
                 expected_len: 0,
             }
@@ -1485,7 +1480,7 @@ mod tests {
         let err = TransposeParams::new(vec![0, 0]).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::InvalidPermutation {
+            OpError::InvalidPermutation {
                 perm: vec![0, 0],
                 expected_len: 2,
             }
@@ -1497,7 +1492,7 @@ mod tests {
         let err = TransposeParams::new(vec![0, 2]).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::InvalidPermutation {
+            OpError::InvalidPermutation {
                 perm: vec![0, 2],
                 expected_len: 2,
             }
@@ -1510,7 +1505,7 @@ mod tests {
         let err = TransposeParams::new(vec![0, 2, 2]).unwrap_err();
         assert_eq!(
             err,
-            MlOpError::InvalidPermutation {
+            OpError::InvalidPermutation {
                 perm: vec![0, 2, 2],
                 expected_len: 3,
             }
@@ -1585,40 +1580,40 @@ mod tests {
         assert_eq!(p.target_shape, shape);
     }
 
-    // ── MlOp::custom() ──────────────────────────────────────────────────
+    // ── Op::custom() ──────────────────────────────────────────────────
 
     #[test]
     fn custom_new_valid() {
-        let op = MlOp::custom("my_op", vec![1, 2, 3]).unwrap();
+        let op = Op::custom("my_op", vec![1, 2, 3]).unwrap();
         assert_eq!(op.name(), "my_op");
         assert!(op.is_custom());
     }
 
     #[test]
     fn custom_new_valid_empty_params() {
-        let op = MlOp::custom("simple_op", vec![]).unwrap();
+        let op = Op::custom("simple_op", vec![]).unwrap();
         assert_eq!(op.name(), "simple_op");
     }
 
     #[test]
     fn custom_new_empty_name() {
-        let err = MlOp::custom("", vec![]).unwrap_err();
-        assert_eq!(err, MlOpError::EmptyCustomName);
+        let err = Op::custom("", vec![]).unwrap_err();
+        assert_eq!(err, OpError::EmptyCustomName);
     }
 
     #[test]
     fn custom_new_accepts_string() {
         let name = String::from("dynamic_name");
-        let op = MlOp::custom(name, vec![]).unwrap();
+        let op = Op::custom(name, vec![]).unwrap();
         assert_eq!(op.name(), "dynamic_name");
     }
 
-    // ── Constructors produce correct MlOp variants ───────────────────────
+    // ── Constructors produce correct Op variants ───────────────────────
 
     #[test]
     fn conv2d_new_wraps_in_mlop() {
         let p = Conv2dParams::new([3, 3], [1, 1], [0, 0], [1, 1], 1).unwrap();
-        let op = MlOp::Conv2d(p);
+        let op = Op::Conv2d(p);
         assert_eq!(op.name(), "Conv2d");
         assert!(op.is_spatial_2d());
     }
@@ -1626,7 +1621,7 @@ mod tests {
     #[test]
     fn pool_new_wraps_in_maxpool() {
         let p = PoolParams::new([2, 2], [2, 2], [0, 0]).unwrap();
-        let op = MlOp::MaxPool2d(p);
+        let op = Op::MaxPool2d(p);
         assert_eq!(op.name(), "MaxPool2d");
         assert!(op.is_spatial_2d());
     }
@@ -1634,14 +1629,14 @@ mod tests {
     #[test]
     fn pool_new_wraps_in_avgpool() {
         let p = PoolParams::new([2, 2], [2, 2], [0, 0]).unwrap();
-        let op = MlOp::AvgPool2d(p);
+        let op = Op::AvgPool2d(p);
         assert_eq!(op.name(), "AvgPool2d");
     }
 
     #[test]
     fn linear_new_wraps_in_mlop() {
         let p = LinearParams::new(784, 128, true).unwrap();
-        let op = MlOp::Linear(p);
+        let op = Op::Linear(p);
         assert_eq!(op.name(), "Linear");
         assert!(!op.is_parameterless());
     }
@@ -1649,21 +1644,21 @@ mod tests {
     #[test]
     fn batchnorm_new_wraps_in_mlop() {
         let p = BatchNormParams::new(64, 1e-5, Some(0.1)).unwrap();
-        let op = MlOp::BatchNorm(p);
+        let op = Op::BatchNorm(p);
         assert_eq!(op.name(), "BatchNorm");
     }
 
     #[test]
     fn layernorm_new_wraps_in_mlop() {
         let p = LayerNormParams::new(vec![768], 1e-12).unwrap();
-        let op = MlOp::LayerNorm(p);
+        let op = Op::LayerNorm(p);
         assert_eq!(op.name(), "LayerNorm");
     }
 
     #[test]
     fn dropout_new_wraps_in_mlop() {
         let p = DropoutParams::new(0.5).unwrap();
-        let op = MlOp::Dropout(p);
+        let op = Op::Dropout(p);
         assert_eq!(op.name(), "Dropout");
         assert!(!op.is_parameterless());
     }
@@ -1671,7 +1666,7 @@ mod tests {
     #[test]
     fn transpose_new_wraps_in_mlop() {
         let p = TransposeParams::new(vec![1, 0, 2]).unwrap();
-        let op = MlOp::Transpose(p);
+        let op = Op::Transpose(p);
         assert_eq!(op.name(), "Transpose");
     }
 }
