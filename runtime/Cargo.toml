@@ -7,12 +7,17 @@ license.workspace     = true
 repository.workspace  = true
 
 [[bin]]
-name = "demo"
-path = "src/main.rs"
+name     = "demo"
+path     = "src/main.rs"
+required-features = ["cuda"]
+
+[features]
+default = []
+cuda    = ["dep:backends-cuda"]
 
 [dependencies]
 backends      = { workspace = true }
-backends-cuda = { workspace = true }
+backends-cuda = { workspace = true, optional = true }
 graph-core    = { workspace = true }
 bytemuck      = { workspace = true }
 thiserror     = { workspace = true }
