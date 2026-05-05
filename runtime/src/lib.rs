@@ -1,4 +1,4 @@
-//! Graphynx runtime — convenience kernel dispatch API.
+//! Graphynx runtime — convenience kernel dispatch API and graph executor.
 //!
 //! # Quick start
 //!
@@ -11,6 +11,8 @@
 //! let input   = vec![1i32, 2, 3, 4, 5];
 //! let output: Vec<i32> = runtime::run_kernel(&backend, &desc, &input)?;
 //! ```
+
+pub mod executor;
 
 use bytemuck::Pod;
 use log::debug;

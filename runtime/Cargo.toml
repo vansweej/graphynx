@@ -15,6 +15,7 @@ backends      = { workspace = true }
 backends-cuda = { workspace = true }
 graph-core    = { workspace = true }
 bytemuck      = { workspace = true }
+thiserror     = { workspace = true }
 log           = { workspace = true }
 env_logger    = { workspace = true }
 
