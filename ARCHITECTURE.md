@@ -92,14 +92,14 @@ src/core/
 
 ```rust
 /// Scalar element type.
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum DType {
     Bool,
     U8, U16, U32, U64,
     I8, I16, I32, I64,
     F16, BF16, F32, F64,
     /// Escape hatch for backend-specific types (e.g. quantised types).
-    Custom(&'static str),
+    Custom(String),
 }
 
 impl DType {
@@ -234,6 +234,7 @@ core/src/graph/
   edge.rs          -- Edge, EdgeSource, PortRef, SourcePort, SinkPort, SinkConnection
   builder.rs       -- GraphBuilder (fluent API)
   validate.rs      -- cycle detection, type checks, backend checks
+  persist.rs       -- RON graph persistence (serde feature)
 ```
 
 ```rust
@@ -868,6 +869,7 @@ core/                         -- crate: graph-core
                               --   SinkPort, SinkConnection
       builder.rs              -- GraphBuilder (fluent API)
       validate.rs             -- cycle detection, type checks, backend checks
+      persist.rs              -- GraphFile, save/load RON APIs (serde feature)
 
 backends/                     -- crate: backends
   Cargo.toml
@@ -934,8 +936,9 @@ backends-cuda   backends-cpu   (both depend on backends)
 ```
 
 **Key invariant:** `graph-core` is backend-agnostic — it depends only on
-`std`, `thiserror`, and `bytemuck`. All CUDA and hardware-specific code lives
-in `backends-cuda`. `unsafe` is confined to backend crates.
+`std`, `thiserror`, and `bytemuck` by default. Optional `serde` + `ron` support
+is feature-gated for graph persistence. All CUDA and hardware-specific code
+lives in `backends-cuda`. `unsafe` is confined to backend crates.
 
 ---
 
@@ -955,6 +958,7 @@ in `backends-cuda`. `unsafe` is confined to backend crates.
 | 10 | **`unsafe` confined to backend implementations** | All FFI (CUDA, OpenCL, Vulkan, libtorch C++) lives inside `backends/`. The core engine is 100% safe Rust. |
 | 11 | **Graph is immutable after `build()`** | Simplifies scheduling — no mutations during execution. |
 | 12 | **DAG scheduling first, streaming later** | Topological sort is correct for acyclic graphs. Streaming/cycles layer on top without changing core abstractions. |
+| 13 | **RON graph persistence is feature-gated** | `.graphynx.ron` files give reusable, diffable graph artifacts while keeping default `graph-core` builds free of serialization dependencies. Files load by replaying through `GraphBuilder::build()` so validation stays centralized. |
 
 ---
 
@@ -965,7 +969,7 @@ in `backends-cuda`. `unsafe` is confined to backend crates.
 | **Multi-device** | `BackendRegistry` maps multiple `DeviceId`s. Scheduler assigns nodes to devices. BufferManager handles cross-device transfers. |
 | **Async / pipelined execution** | Executor swaps blocking dispatch for async. Backends expose `dispatch_*_async` returning a future. |
 | **Streaming / cycles** | Replace topo-sort with a readiness-queue that re-enqueues nodes whose inputs refresh. |
-| **Config-file graphs** | YAML/JSON/TOML front-end constructs a `Graph` via the builder API. |
+| **Config-file graphs** | RON graph files are supported behind `graph-core/serde`; additional YAML/JSON/TOML front-ends can construct a `Graph` via the builder API. |
 | **Profiling** | Instrument executor with timing callbacks around dispatch and transfer. |
 | **Device-to-device transfer** | Add `Backend::transfer(src, dst, buffer)` for direct peer copies (CUDA P2P, DMA). |
 | **Training** | `Op` nodes gain a `backward()` path. The scheduler runs the graph forward, then in reverse for gradient computation. |
@@ -979,6 +983,8 @@ in `backends-cuda`. `unsafe` is confined to backend crates.
 | Crate          | Layer     | Purpose                          | Required |
 |----------------|-----------|----------------------------------|----------|
 | `thiserror`    | core      | Ergonomic error types            | yes      |
+| `serde`        | core      | Graph persistence derives        | feature  |
+| `ron`          | core      | `.graphynx.ron` persistence      | feature  |
 | `log`          | execution | Structured logging               | yes      |
 | `cudarc`       | backends  | CUDA driver API                  | feature  |
 | `opencl3`      | backends  | OpenCL bindings                  | feature  |
@@ -990,5 +996,7 @@ in `backends-cuda`. `unsafe` is confined to backend crates.
 | `candle-core`  | backends  | Rust-native ML (Hugging Face)    | feature  |
 | `burn`         | backends  | Rust-native ML framework         | feature  |
 
-Core and execution layers depend only on `std`, `thiserror`, and `log`. All
-hardware and ML framework crates are behind Cargo features in the backend layer.
+Core and execution layers depend only on `std`, `thiserror`, `bytemuck`, and
+`log` by default. Serialization crates (`serde`, `ron`) are behind the
+`graph-core` `serde` feature, and all hardware/ML framework crates are behind
+Cargo features in the backend layer.

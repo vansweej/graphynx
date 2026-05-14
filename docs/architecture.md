@@ -143,7 +143,9 @@ flowchart LR
 6. **Capability-based dispatch** — `BackendCaps` declares what a backend supports
    (`Compute`, `Op`, `MlModel`) and its memory model (`Explicit` or `Managed`).
 7. **Stateful ops via state threading** — the executor persists EMA state across
-   ticks by prepending/appending state buffers; the op itself is pure.
+    ticks by prepending/appending state buffers; the op itself is pure.
+8. **Feature-gated persistence** — RON save/load support lives behind the
+   `graph-core` `serde` feature so the default core build stays lightweight.
 
 ## Tensor Type System
 
@@ -181,6 +183,7 @@ See [tensor-type.md](tensor-type.md) for the full API reference.
 | `graph-core` | `core/src/ops/ml.rs` | ML param structs (`Conv2dParams`, `LinearParams`, …) |
 | `graph-core` | `core/src/ops/signal.rs` | Signal param structs (`WindowParams`, `FftParams`, `BandExtractParams`) |
 | `graph-core` | `core/src/graph/` | `Graph`, `GraphBuilder`, `Node`, `Edge`, validator |
+| `graph-core` | `core/src/graph/persist.rs` | RON graph persistence (`serde` feature) |
 | `backends` | `backends/src/lib.rs` | `Backend` trait, `BackendError`, `DeviceId`, `BackendCaps` |
 | `backends-cpu` | `backends-cpu/src/lib.rs` | `CpuBackend` — managed-memory signal ops |
 | `backends-cpu` | `backends-cpu/src/signal/` | `window.rs`, `fft.rs`, `band.rs` |
@@ -200,6 +203,7 @@ See [tensor-type.md](tensor-type.md) for the full API reference.
 - [docs/getting-started.md](getting-started.md) — build, test, and first steps
 - [docs/executor.md](executor.md) — executor developer guide
 - [docs/graph-ir.md](graph-ir.md) — Graph IR and builder API
+- [docs/persistence.md](persistence.md) — `.graphynx.ron` graph persistence
 - [docs/signal-ops.md](signal-ops.md) — signal processing ops guide
 - [docs/op-catalog.md](op-catalog.md) — `Op` enum and parameter structs
 - [docs/backend-trait.md](backend-trait.md) — `Backend` trait system

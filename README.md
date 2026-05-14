@@ -169,7 +169,7 @@ graphynx/                         # Cargo workspace root
 │   └── src/
 │       ├── types/                # DType · Dim · Layout · TensorType · Shape
 │       ├── ops/                  # Op enum · OpError · ML + Signal param structs
-│       └── graph/                # Graph IR · GraphBuilder · Node · Edge · validator
+│       └── graph/                # Graph IR · GraphBuilder · Node · Edge · persist
 ├── backends/                     # backends — Backend trait · BackendError · DeviceId
 ├── backends-cpu/                 # backends-cpu — CpuBackend (signal ops)
 │   └── src/signal/               # window.rs · fft.rs · band.rs
@@ -191,12 +191,21 @@ graphynx/                         # Cargo workspace root
 | [docs/executor.md](docs/executor.md) | Executor developer guide |
 | [docs/signal-ops.md](docs/signal-ops.md) | Signal processing ops guide (Window · FFT · BandExtract) |
 | [docs/graph-ir.md](docs/graph-ir.md) | Graph IR and builder API |
+| [docs/persistence.md](docs/persistence.md) | RON graph persistence (`.graphynx.ron`) |
 | [docs/op-catalog.md](docs/op-catalog.md) | Op enum and parameter structs |
 | [docs/backend-trait.md](docs/backend-trait.md) | Backend trait system |
 | [docs/tensor-type.md](docs/tensor-type.md) | TensorType, Dim, Layout |
 | [docs/shape.md](docs/shape.md) | Shape, broadcasting, strides |
 | [docs/dtype.md](docs/dtype.md) | DType scalar element types |
 | [docs/cuda-backend.md](docs/cuda-backend.md) | CUDA backend details |
+
+## Feature Flags
+
+| Feature | Crate | Enables |
+|---|---|---|
+| `serde` | `graph-core` | RON graph persistence APIs under `graph_core::persist` |
+| `cuda` | `runtime` | CUDA backend and demo binary |
+| `live-audio` | `runtime` | CPAL-backed live audio capture |
 
 ## License
 

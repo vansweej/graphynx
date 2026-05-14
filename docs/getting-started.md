@@ -223,6 +223,31 @@ let custom = Op::custom("my_fused_op", vec![/* backend-specific bytes */]).unwra
 assert!(custom.is_custom());
 ```
 
+### Saving and loading graphs
+
+Graph persistence is available from `graph-core` behind the `serde` feature:
+
+```toml
+graph-core = { path = "../path/to/graphynx/core", features = ["serde"] }
+```
+
+Use the executor-tier API when you only need a validated `Graph`:
+
+```rust
+use graph_core::persist::{load, save};
+
+# fn example(graph: &graph_core::graph::Graph) -> Result<(), graph_core::persist::GraphFileError> {
+save(graph, "voice.graphynx.ron")?;
+let loaded = load("voice.graphynx.ron")?;
+assert_eq!(loaded.node_count(), graph.node_count());
+# Ok(())
+# }
+```
+
+Use `load_file`/`save_file` instead when a visual editor must preserve the
+opaque layout metadata stored in the file. See [Graph Persistence](persistence.md)
+for the full format and API reference.
+
 ## Rust Toolchain
 
 The Rust toolchain is pinned in `rust-toolchain.toml` to `stable 1.94.1`. Do
@@ -234,6 +259,7 @@ not change this without following the upgrade procedure documented in `AGENTS.md
 - [Executor Guide](executor.md) — how the executor schedules and dispatches nodes
 - [Signal Ops Guide](signal-ops.md) — Window, FFT, BandExtract algorithms and graph wiring
 - [Graph IR](graph-ir.md) — GraphBuilder API and graph validation
+- [Graph Persistence](persistence.md) — `.graphynx.ron` save/load format and APIs
 - [Backend Trait System](backend-trait.md) — `Backend`, `DeviceBuffer`, `KernelDescriptor`
 - [CUDA Backend](cuda-backend.md) — CUDA-specific implementation details
 - [Op Catalog](op-catalog.md) — `Op` enum, all parameter structs, query methods

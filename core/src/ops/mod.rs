@@ -156,6 +156,7 @@ pub enum OpError {
 /// let softmax = Op::Softmax(SoftmaxParams { axis: -1 });
 /// assert_eq!(softmax.name(), "Softmax");
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
     // ── Linear algebra ───────────────────────────────────────────────────

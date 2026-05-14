@@ -7,6 +7,7 @@ use std::fmt;
 /// The variant identifies both the traversal order and — for image layouts —
 /// the expected rank. [`Layout::Any`] acts as a wildcard in compatibility
 /// checks, meaning "this side imposes no layout constraint".
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Layout {
     /// Row-major / C-contiguous. Last dimension varies fastest.

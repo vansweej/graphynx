@@ -312,11 +312,22 @@ Edge type checking uses `TensorType::is_compatible_with`, which allows
 fixed dimensions. See [`tensor-type.md`](tensor-type.md) for the full
 compatibility rules.
 
+### Persistence
+
+With the `graph-core` `serde` feature enabled, validated graphs can be saved to
+and loaded from `.graphynx.ron` files via `graph_core::persist`. Loading replays
+the file through `GraphBuilder::build()`, so graph files use the same validation
+passes described above. Editor-only layout metadata is preserved by the
+`load_file`/`save_file` APIs and ignored by the executor-oriented `load` API.
+
+See [`persistence.md`](persistence.md) for the format and API details.
+
 ---
 
 ## Related documentation
 
 - [`op-catalog.md`](op-catalog.md) — The `Op` enum and all primitive operations
 - [`tensor-type.md`](tensor-type.md) — `TensorType`, `DType`, `Shape`, `Layout`
+- [`persistence.md`](persistence.md) — RON graph save/load format and APIs
 - [`backend-trait.md`](backend-trait.md) — The `Backend` trait and `KernelDescriptor`
 - [`voice-metaballs-plan.md`](voice-metaballs-plan.md) — Overall project plan

@@ -30,6 +30,7 @@ pub enum DimError {
 ///
 /// Two dims are compatible for a graph edge if the values they could represent
 /// at runtime are always the same. See [`Dim::is_compatible_with`].
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum Dim {
     /// Known at graph-build time. Always ≥ 1 when constructed through

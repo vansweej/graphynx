@@ -26,14 +26,16 @@ graph TD
     Float --> F32["F32<br/>4 bytes"]
     Float --> F64["F64<br/>8 bytes"]
 
-    DType --> Custom_["Custom(&'static str)<br/>Unknown size"]
+    DType --> Custom_["Custom(String)<br/>Unknown size"]
 ```
 
 ## Derives
 
-`DType` derives: `Copy`, `Clone`, `Debug`, `Eq`, `PartialEq`, `Hash`.
+`DType` derives: `Clone`, `Debug`, `Eq`, `PartialEq`, `Hash`.
 
-This makes it usable as a `HashMap` key, freely copyable, and suitable for pattern matching.
+This makes it usable as a `HashMap` key and suitable for pattern matching.
+`DType` is not `Copy` because `Custom(String)` owns backend-specific labels so
+they can round-trip through graph persistence.
 
 ## Methods
 
@@ -110,7 +112,7 @@ Derives: `Debug`, `Error`, `Clone`, `Eq`, `PartialEq`.
 
 ## Custom Variant
 
-The `Custom(&'static str)` variant is an escape hatch for backend-specific types that the core layer doesn't know about (e.g. quantized formats like `q4_0`, `fp8_e4m3`). Its size, alignment, and category are all unknown.
+The `Custom(String)` variant is an escape hatch for backend-specific types that the core layer doesn't know about (e.g. quantized formats like `q4_0`, `fp8_e4m3`). Its size, alignment, and category are all unknown.
 
 ### Safe Constructor
 
@@ -129,17 +131,17 @@ assert!(DType::custom("").is_err());
 
 | Constructor | Parameters | Returns | Description |
 |---|---|---|---|
-| `DType::custom(label)` | `&'static str` | `Result<DType, DTypeError>` | Safe constructor — rejects empty labels |
-| `DType::Custom(label)` | `&'static str` | `DType` | Direct variant construction (unchecked) |
+| `DType::custom(label)` | `impl Into<String>` | `Result<DType, DTypeError>` | Safe constructor — rejects empty labels |
+| `DType::Custom(label)` | `String` | `DType` | Direct variant construction (unchecked) |
 
 ### Equality
 
 Two `Custom` values are equal only if their string labels are identical:
 
 ```rust
-assert_eq!(DType::Custom("q4"), DType::Custom("q4"));
-assert_ne!(DType::Custom("q4"), DType::Custom("q8"));
-assert_ne!(DType::Custom("f32"), DType::F32); // string label vs enum variant
+assert_eq!(DType::Custom("q4".into()), DType::Custom("q4".into()));
+assert_ne!(DType::Custom("q4".into()), DType::Custom("q8".into()));
+assert_ne!(DType::Custom("f32".into()), DType::F32); // string label vs enum variant
 ```
 
 When `DType::Custom` is used in a `TensorType`, `TensorType::size_bytes()` returns `None` because the element size is unknown to the core layer.

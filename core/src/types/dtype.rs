@@ -27,6 +27,7 @@ pub enum DTypeError {
 /// - Signed integers: `I8`, `I16`, `I32`, `I64`
 /// - Floating point: `F16`, `BF16`, `F32`, `F64`
 /// - Backend-specific escape hatch: `Custom(String)`
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum DType {
     /// Boolean (1 byte).

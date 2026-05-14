@@ -58,6 +58,7 @@ use super::OpError;
 /// | Blackman | −58.1 dB | 6 bins |
 ///
 /// For voice-frequency analysis the **Hann** window is a good default.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WindowKind {
     /// Hann (von Hann) window: `w[n] = 0.5 × (1 − cos(2πn / (N−1)))`.
@@ -93,6 +94,7 @@ pub enum WindowKind {
 /// assert_eq!(p.size, 2048);
 /// assert_eq!(p.kind, WindowKind::Hann);
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WindowParams {
     /// Which windowing function to apply.
@@ -127,6 +129,7 @@ impl WindowParams {
 // ── FFT ───────────────────────────────────────────────────────────────────────
 
 /// Direction of the Fourier transform.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FftDirection {
     /// Forward DFT: time domain → frequency domain.
@@ -151,6 +154,7 @@ pub enum FftDirection {
 /// │  Power     →  [N/2+1] f32         re² + im²                 │
 /// └──────────────────────────────────────────────────────────────┘
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FftOutput {
     /// Full complex spectrum stored as interleaved f32 pairs.
@@ -201,6 +205,7 @@ pub enum FftOutput {
 /// assert_eq!(p.size, 2048);
 /// assert_eq!(p.one_sided_len(), 1025);
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FftParams {
     /// Number of samples in the input frame. Must be > 0.
@@ -279,6 +284,7 @@ impl FftParams {
 ///
 /// If no bins fall within a band (e.g. the band is narrower than one bin),
 /// the output for that band is `0.0`.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct BandDef {
     /// Lower bound of the band in Hz. Must be ≥ 0 and < `high_hz`.
@@ -378,6 +384,7 @@ impl BandDef {
 /// assert_eq!(p.bands.len(), 3);
 /// assert!(p.is_stateful());
 /// ```
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct BandExtractParams {
     /// Frequency bands to extract. Must not be empty.
