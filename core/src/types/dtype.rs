@@ -26,8 +26,8 @@ pub enum DTypeError {
 /// - Boolean and unsigned integers: `Bool`, `U8`, `U16`, `U32`, `U64`
 /// - Signed integers: `I8`, `I16`, `I32`, `I64`
 /// - Floating point: `F16`, `BF16`, `F32`, `F64`
-/// - Backend-specific escape hatch: `Custom(&'static str)`
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+/// - Backend-specific escape hatch: `Custom(String)`
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub enum DType {
     /// Boolean (1 byte).
     Bool,
@@ -63,7 +63,7 @@ pub enum DType {
     ///
     /// The string label identifies the type within the backend that
     /// defines it. Size and alignment are unknown to the core layer.
-    Custom(&'static str),
+    Custom(String),
 }
 
 impl DType {
@@ -83,7 +83,8 @@ impl DType {
     /// assert!(DType::custom("q4").is_ok());
     /// assert!(DType::custom("").is_err());
     /// ```
-    pub fn custom(label: &'static str) -> Result<Self, DTypeError> {
+    pub fn custom(label: impl Into<String>) -> Result<Self, DTypeError> {
+        let label = label.into();
         if label.is_empty() {
             Err(DTypeError::EmptyCustomLabel)
         } else {
@@ -105,7 +106,7 @@ impl DType {
     ///
     /// assert_eq!(DType::F32.size_bytes(), Some(4));
     /// assert_eq!(DType::Bool.size_bytes(), Some(1));
-    /// assert_eq!(DType::Custom("q4").size_bytes(), None);
+    /// assert_eq!(DType::Custom("q4".into()).size_bytes(), None);
     /// ```
     pub fn size_bytes(&self) -> Option<usize> {
         match self {
@@ -131,7 +132,7 @@ impl DType {
     ///
     /// assert_eq!(DType::F64.alignment(), Some(8));
     /// assert_eq!(DType::F16.alignment(), Some(2));
-    /// assert_eq!(DType::Custom("q8").alignment(), None);
+    /// assert_eq!(DType::Custom("q8".into()).alignment(), None);
     /// ```
     pub fn alignment(&self) -> Option<usize> {
         // Natural alignment equals type size for all standard scalar types.
@@ -153,7 +154,7 @@ impl DType {
     ///
     /// assert_eq!(DType::F32.name(), "f32");
     /// assert_eq!(DType::BF16.name(), "bf16");
-    /// assert_eq!(DType::Custom("q4_0").name(), "q4_0");
+    /// assert_eq!(DType::Custom("q4_0".into()).name(), "q4_0");
     /// ```
     pub fn name(&self) -> &str {
         match self {
@@ -170,7 +171,7 @@ impl DType {
             DType::BF16 => "bf16",
             DType::F32 => "f32",
             DType::F64 => "f64",
-            DType::Custom(s) => s,
+            DType::Custom(s) => s.as_str(),
         }
     }
 
@@ -267,7 +268,7 @@ impl DType {
     /// ```
     /// use graph_core::types::dtype::DType;
     ///
-    /// assert!(DType::Custom("q4").is_custom());
+    /// assert!(DType::Custom("q4".into()).is_custom());
     /// assert!(!DType::F32.is_custom());
     /// ```
     pub fn is_custom(&self) -> bool {

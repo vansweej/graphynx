@@ -317,7 +317,7 @@ impl TensorType {
 
     /// The scalar element type.
     pub fn dtype(&self) -> DType {
-        self.dtype
+        self.dtype.clone()
     }
 
     /// The shape of this tensor.
@@ -1460,8 +1460,12 @@ mod tests {
 
         #[test]
         fn size_bytes_custom_dtype() {
-            let v = TensorType::new(DType::Custom("q4"), vec![Dim::Fixed(16)], Layout::RowMajor)
-                .unwrap();
+            let v = TensorType::new(
+                DType::Custom("q4".into()),
+                vec![Dim::Fixed(16)],
+                Layout::RowMajor,
+            )
+            .unwrap();
             assert_eq!(v.size_bytes(), None);
         }
     }
