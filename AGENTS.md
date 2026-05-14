@@ -32,6 +32,7 @@ This repo is a **Cargo workspace** with five member crates rooted at the repo ro
   - `graph_core::ops` — `Op` enum, `OpError`, per-op parameter structs
     - Signal ops (Phase 3): `WindowKind`, `WindowParams`, `FftDirection`, `FftOutput`, `FftParams`, `BandDef`, `BandExtractParams`
   - `graph_core::graph` — Graph IR: `Graph`, `GraphBuilder`, `Node`, `NodeId`, `NodeKind`, `Edge`, `EdgeSource`, `PortRef`, `SourcePort`, `SinkPort`, `SinkConnection`, `GraphError`, `KernelDescriptor`
+  - `graph_core::persist` — serde-gated RON graph persistence: `GraphFile`, `TensorTypeSpec`, `NodeSpec`, `InputSpec`, `OpSpec`, `save`, `load`, `save_file`, `load_file`
 - `backends/` — crate name `backends` — `Backend` trait, `BackendError`, `KernelDescriptor` (re-exported from `graph-core`), `DeviceId` (re-exported from `graph-core`)
 - `backends-cpu/` — crate name `backends-cpu` — `CpuBackend` (managed-memory CPU backend for signal ops)
   - Supports `Op::Window`, `Op::Fft`, `Op::BandExtract`; all other ops return `BackendError::UnsupportedOp`
@@ -60,6 +61,7 @@ CUDA build artifacts (`build.rs`, `kernel.cu`, `kernel.ptx`, `compile-kernel.sh`
 ## Design constraints
 
 - Keep the core library backend-agnostic.
+- Keep graph persistence and serde/ron dependencies behind the `graph-core` `serde` feature.
 - Keep `unsafe` confined to backend implementations.
 - Prefer validated constructors for public types.
 - Preserve a working default build without requiring CUDA execution paths.
@@ -92,8 +94,11 @@ Primary commands:
 
 ```bash
 nix develop --command cargo test
+nix develop --command cargo test --features serde
 nix develop --command cargo test --doc
+nix develop --command cargo test --doc --features serde
 nix develop --command cargo tarpaulin
+nix develop --command cargo tarpaulin --features serde
 ```
 
 Single-test workflows:
@@ -150,6 +155,8 @@ nix develop --command cargo tarpaulin
   - `cudarc = 0.9` with `default-features = false`, `driver`, `std`
   - `thiserror = 2`
   - `bytemuck = 1` with `derive`
+  - `serde = 1` with `derive` (optional, `graph-core/serde`)
+  - `ron = 0.8` (optional, `graph-core/serde`)
 - New dependencies should minimize features and must not pull GPU runtime
   dependencies into core modules.
 

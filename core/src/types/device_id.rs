@@ -20,6 +20,11 @@ pub enum DeviceIdError {
 ///
 /// # Examples
 /// `"cpu"`, `"cuda:0"`, `"opencl:1"`, `"onnx:cpu"`, `"libtorch:cuda:0"`
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(transparent)
+)]
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct DeviceId(String);
 

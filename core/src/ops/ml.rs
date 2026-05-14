@@ -7,6 +7,7 @@ use super::OpError;
 /// Parameters for a 2-D convolution operation.
 ///
 /// All spatial parameters are `[height, width]` ordered arrays.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Conv2dParams {
     /// Size of the convolution kernel: `[kernel_h, kernel_w]`.
@@ -80,6 +81,7 @@ impl Conv2dParams {
 /// Parameters for a general matrix multiplication.
 ///
 /// Computes `C = op(A) · op(B)`, where `op` is optionally a transpose.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct MatMulParams {
     /// If `true`, transpose matrix A before multiplying.
@@ -103,6 +105,7 @@ impl MatMulParams {
 /// Parameters for a fully-connected (dense) linear layer.
 ///
 /// Computes `y = x · W^T + b` (when `bias` is `true`).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct LinearParams {
     /// Number of input features.
@@ -153,6 +156,7 @@ impl LinearParams {
 /// Parameters shared by pooling operations (max-pool and avg-pool).
 ///
 /// All spatial parameters are `[height, width]` ordered arrays.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PoolParams {
     /// Spatial size of the pooling window: `[kh, kw]`.
@@ -208,6 +212,7 @@ impl PoolParams {
 ///
 /// See [Batch Normalization: Accelerating Deep Network Training](
 /// https://arxiv.org/abs/1502.03167).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct BatchNormParams {
     /// Number of features / channels in the input.
@@ -263,6 +268,7 @@ impl BatchNormParams {
 /// Parameters for layer normalisation.
 ///
 /// See [Layer Normalization](https://arxiv.org/abs/1607.06450).
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct LayerNormParams {
     /// Shape of the normalised sub-tensor (the trailing dimensions).
@@ -307,6 +313,7 @@ impl LayerNormParams {
 }
 
 /// Parameters for softmax activation.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct SoftmaxParams {
     /// The axis along which softmax is computed. Negative values index from
@@ -326,6 +333,7 @@ impl SoftmaxParams {
 }
 
 /// Parameters for a reshape operation.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReshapeParams {
     /// Target shape. May contain [`Dim::Dynamic`] or [`Dim::Symbolic`]
@@ -344,6 +352,7 @@ impl ReshapeParams {
 }
 
 /// Parameters for a tensor transpose / permutation.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TransposeParams {
     /// Permutation of axes. Must be a permutation of `0..rank`.
@@ -394,6 +403,7 @@ impl TransposeParams {
 }
 
 /// Parameters for concatenating tensors along an axis.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct ConcatParams {
     /// Axis along which to concatenate. Negative values index from the end.
@@ -411,6 +421,7 @@ impl ConcatParams {
 }
 
 /// Parameters for flattening a range of dimensions into one.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct FlattenParams {
     /// First dimension to flatten (inclusive). Negative values index from end.
@@ -430,6 +441,7 @@ impl FlattenParams {
 }
 
 /// Parameters for dropout regularisation.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct DropoutParams {
     /// Probability of an element being zeroed. Must be in `[0.0, 1.0)`.

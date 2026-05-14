@@ -24,15 +24,18 @@ env_logger  = "0.11"
 hound       = "3"
 log         = "0.4"
 num-complex = "0.4"
+ron         = "0.8"
 rustfft     = "6"
+serde       = { version = "1", features = ["derive"] }
+tempfile    = "3"
 thiserror   = "2"
 
 # Workspace-internal
-graph-core    = { path = "core" }
-backends      = { path = "backends" }
-backends-cpu  = { path = "backends-cpu" }
-backends-cuda = { path = "backends-cuda" }
-runtime       = { path = "runtime" }
+graph-core    = { path = "core", version = "0.1.0" }
+backends      = { path = "backends", version = "0.1.0" }
+backends-cpu  = { path = "backends-cpu", version = "0.1.0" }
+backends-cuda = { path = "backends-cuda", version = "0.1.0" }
+runtime       = { path = "runtime", version = "0.1.0" }
 
 [workspace.lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin_include)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tarpaulin)', 'cfg(tarpaulin_include)'] }

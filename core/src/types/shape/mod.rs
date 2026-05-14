@@ -75,6 +75,11 @@ pub enum ShapeError {
 /// All fields are private. Use [`Shape::new`], [`Shape::scalar`],
 /// [`Shape::vector`], [`Shape::matrix`], or [`Shape::from_fixed`] to
 /// construct instances.
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(try_from = "Vec<Dim>", into = "Vec<Dim>")
+)]
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub struct Shape {
     dims: Vec<Dim>,
@@ -385,6 +390,22 @@ impl fmt::Display for Shape {
             write!(f, "{dim}")?;
         }
         f.write_str("]")
+    }
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<Vec<Dim>> for Shape {
+    type Error = ShapeError;
+
+    fn try_from(dims: Vec<Dim>) -> Result<Self, Self::Error> {
+        Shape::new(dims)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl From<Shape> for Vec<Dim> {
+    fn from(shape: Shape) -> Self {
+        shape.dims
     }
 }
 

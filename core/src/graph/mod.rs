@@ -8,6 +8,8 @@ use crate::types::TensorType;
 pub mod builder;
 pub mod edge;
 pub mod node;
+#[cfg(feature = "serde")]
+pub mod persist;
 pub mod validate;
 
 pub use builder::GraphBuilder;

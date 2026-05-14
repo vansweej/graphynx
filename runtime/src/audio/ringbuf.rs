@@ -226,6 +226,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        tarpaulin,
+        ignore = "stress test can exceed tarpaulin response timeout"
+    )]
     #[cfg(not(tarpaulin_include))]
     fn concurrent_push_pop_stress() {
         use std::thread;
